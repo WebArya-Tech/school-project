@@ -31,7 +31,7 @@ const connectDB = require('../config/database/connection');
 
 const app = express();
 // ✅🔥 FIX (VERY IMPORTANT)
-app.set('trust proxy', 1);
+// app.set('trust proxy', 1);
 const PORT = process.env.PORT || 5000;
 
 // Connect to MongoDB (skip in E2E/local test mode)
