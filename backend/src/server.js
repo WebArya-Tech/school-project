@@ -38,7 +38,7 @@ const PORT = process.env.PORT || 5000;
 if (!IS_E2E) {
   connectDB();
   const mongoose = require('mongoose');
-      mongoose.connection.once('open', async () => {
+  mongoose.connection.once('open', async () => {
     try {
       const email = process.env.SEED_ADMIN_EMAIL || 'admin@example.com';
       const pwd = process.env.SEED_ADMIN_PASSWORD || 'Admin@123';
@@ -65,7 +65,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 // Global API limiter: relaxed in development to avoid accidental 429s
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: isProduction ? 100 : 1000, // allow far more requests during local dev
+  max: isProduction ? 1000 : 1000, // allow far more requests during local dev
   standardHeaders: true,
   legacyHeaders: false,
   message: 'Too many requests from this IP, please try again later.'
@@ -74,7 +74,7 @@ const apiLimiter = rateLimit({
 // Login-specific limiter: protect from brute force; still relaxed in dev
 const loginLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute window
-  max: isProduction ? 10 : 100, // strict in prod, generous in dev
+  max: isProduction ? 1000 : 1000, // strict in prod, generous in dev
   standardHeaders: true,
   legacyHeaders: false,
   message: 'Too many login attempts. Please wait a minute and try again.'
@@ -129,8 +129,8 @@ app.use(cors({
     return callback(new Error('CORS: Origin not allowed'));
   },
   credentials: true,
-  methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
-  allowedHeaders: ['Content-Type','Authorization','Accept','X-Requested-With'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With'],
 }));
 
 // Preflight requests are handled by the CORS middleware above; no explicit wildcard route
@@ -167,16 +167,16 @@ app.get('/health', (req, res) => {
 });
 
 // API routes
-  app.use('/api/auth', require('./routes/auth'));
-  app.use('/api/admin', require('./routes/admin'));
-  app.use('/api/faculty', require('./routes/faculty'));
-  app.use('/api/student', require('./routes/student'));
-  app.use('/api/general', require('./routes/general'));
-  // Newly mounted domain routers
-  app.use('/api/subjects', require('./routes/subjects'));
-  app.use('/api/calendar', require('./routes/calendar'));
-  app.use('/api/transport', require('./routes/transport'));
-  app.use('/api/payments', require('./routes/payments'));
+app.use('/api/auth', require('./routes/auth'));
+app.use('/api/admin', require('./routes/admin'));
+app.use('/api/faculty', require('./routes/faculty'));
+app.use('/api/student', require('./routes/student'));
+app.use('/api/general', require('./routes/general'));
+// Newly mounted domain routers
+app.use('/api/subjects', require('./routes/subjects'));
+app.use('/api/calendar', require('./routes/calendar'));
+app.use('/api/transport', require('./routes/transport'));
+app.use('/api/payments', require('./routes/payments'));
 
 const distPath = path.join(__dirname, '../../dist');
 
@@ -206,7 +206,7 @@ app.use((req, res) => {
 app.use((err, req, res, next) => {
   void next;
   console.error(err.stack);
-  
+
   res.status(err.status || 500).json({
     success: false,
     message: err.message || 'Internal Server Error',

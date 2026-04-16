@@ -8,7 +8,7 @@ import config from '../config/config.js';
 export const initializeSecurityMeasures = () => {
   if (config.IS_PRODUCTION && !config.ENABLE_CONSOLE_LOGS) {
     // Disable console methods in production
-    const noop = () => {};
+    const noop = () => { };
     console.log = noop;
     console.warn = noop;
     console.info = noop;
@@ -50,7 +50,7 @@ export const initializeSecurityMeasures = () => {
 // Sanitize user input to prevent XSS
 export const sanitizeInput = (input) => {
   if (typeof input !== 'string') return input;
-  
+
   return input
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -63,19 +63,19 @@ export const sanitizeInput = (input) => {
 // Validate and sanitize form data
 export const sanitizeFormData = (formData) => {
   const sanitized = {};
-  
+
   for (const [key, value] of Object.entries(formData)) {
     if (typeof value === 'string') {
       sanitized[key] = sanitizeInput(value.trim());
     } else if (Array.isArray(value)) {
-      sanitized[key] = value.map(item => 
+      sanitized[key] = value.map(item =>
         typeof item === 'string' ? sanitizeInput(item.trim()) : item
       );
     } else {
       sanitized[key] = value;
     }
   }
-  
+
   return sanitized;
 };
 
@@ -106,27 +106,27 @@ class RateLimiter {
   isAllowed(identifier) {
     const now = Date.now();
     const windowStart = now - this.windowMs;
-    
+
     if (!this.requests.has(identifier)) {
       this.requests.set(identifier, []);
     }
-    
+
     const userRequests = this.requests.get(identifier);
-    
+
     // Remove old requests outside the window
     const validRequests = userRequests.filter(timestamp => timestamp > windowStart);
     this.requests.set(identifier, validRequests);
-    
+
     if (validRequests.length >= this.maxRequests) {
       return false;
     }
-    
+
     validRequests.push(now);
     return true;
   }
 }
 
-export const apiRateLimiter = new RateLimiter(50, 60000); // 50 requests per minute
+export const apiRateLimiter = new RateLimiter(100, 60000); // 50 requests per minute
 
 // Secure local storage wrapper
 export const secureStorage = {
@@ -185,7 +185,7 @@ export const reportError = (error, context = {}) => {
   if (config.ENABLE_ERROR_REPORTING && config.SENTRY_DSN) {
     // In a real app, you would integrate with Sentry or similar service
     console.error('Error reported:', error, context);
-    
+
     // Example Sentry integration:
     // Sentry.captureException(error, { extra: context });
   } else if (config.IS_DEVELOPMENT) {
