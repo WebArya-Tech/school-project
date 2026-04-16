@@ -64,13 +64,13 @@ const isProduction = process.env.NODE_ENV === 'production';
 
 // Global API limiter: relaxed in development to avoid accidental 429s
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 1 * 60 * 1000, // 1 minutes
   max: isProduction ? 1000 : 1000, // allow far more requests during local dev
   standardHeaders: true,
   legacyHeaders: false,
   message: 'Too many requests from this IP, please try again later.'
 });
-
+console.warn("Rate limit conf: " + apiLimiter.max);
 // Login-specific limiter: protect from brute force; still relaxed in dev
 const loginLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute window
@@ -79,6 +79,8 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
   message: 'Too many login attempts. Please wait a minute and try again.'
 });
+
+console.warn("Rate limit conf: " + loginLimiter.max);
 
 app.use('/api/auth/login', (req, res, next) => {
   const origin = (req.headers.origin || '').replace(/\/$/, '');
