@@ -30,8 +30,7 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || 'e2e-secret';
 const connectDB = require('../config/database/connection');
 
 const app = express();
-// ✅🔥 FIX (VERY IMPORTANT)
-// app.set('trust proxy', 1);
+app.set("trust proxy", true);
 const PORT = process.env.PORT || 5000;
 
 // Connect to MongoDB (skip in E2E/local test mode)
@@ -105,35 +104,30 @@ app.use('/api/', (req, res, next) => {
 
 // CORS configuration
 // Normalize FRONTEND_URL to avoid trailing slash mismatches
-const normalize = (url) => (typeof url === 'string' ? url.replace(/\/$/, '') : url);
-const allowedOrigins = [
-  'http://localhost:3000',
-  'http://localhost:5173',
-  'http://localhost:5174',
-  'http://localhost:5175',
-  normalize(process.env.FRONTEND_URL)
-].filter(Boolean);
+// ----- FIXED CORS -----
 
-const isDev = process.env.NODE_ENV !== 'production';
-// Allow localhost or 127.0.0.1 on any port in development
-const devOriginPattern = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i;
+const allowedOrigins = [
+  "https://bbdacademyskn.com",
+  "https://www.bbdacademyskn.com",
+  "http://localhost:5173",
+  "http://localhost:5177",
+  undefined  // allow server-to-server
+];
 
 app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl)
-    if (!origin) return callback(null, true);
-
-    const o = normalize(origin);
-    // Allow explicit whitelist and common dev localhost patterns
-    if (allowedOrigins.includes(o) || devOriginPattern.test(o) || process.env.RELAX_CORS === 'true') {
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
-    return callback(new Error('CORS: Origin not allowed'));
+    console.log("❌ Blocked CORS Origin:", origin);
+    return callback(new Error("CORS: Origin not allowed"));
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With'],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "Accept", "X-Requested-With"],
 }));
+
+
 
 // Preflight requests are handled by the CORS middleware above; no explicit wildcard route
 
