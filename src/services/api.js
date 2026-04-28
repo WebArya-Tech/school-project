@@ -97,7 +97,9 @@ api.interceptors.response.use(
     // Enhanced error handling
     if (error.response?.status === 401) {
       const originalRequest = error.config;
-      if (String(originalRequest?.url || '').includes('/auth/refresh')) {
+      
+      // Prevent infinite loops if retry also fails
+      if (originalRequest._retry) {
         if (!config.IS_E2E) {
           localStorage.removeItem('authToken');
           localStorage.removeItem('refreshToken');
@@ -106,6 +108,28 @@ api.interceptors.response.use(
         }
         return Promise.reject(error);
       }
+
+      // NEVER retry or refresh for login/auth routes - 401 here means wrong credentials
+      // ✅ FIX: Added /auth/verify to prevent refresh loop on app load with bad/expired token
+      const isAuthPath = [
+        '/auth/login',
+        '/auth/register',
+        '/auth/forgot-password',
+        '/auth/reset-password',
+        '/auth/refresh',
+        '/auth/verify',  // ✅ ADDED: prevents token refresh loop on failed verify
+      ].some(path => String(originalRequest?.url || '').includes(path));
+
+      if (isAuthPath) {
+        if (!config.IS_E2E && String(originalRequest?.url || '').includes('/auth/refresh')) {
+          localStorage.removeItem('authToken');
+          localStorage.removeItem('refreshToken');
+          localStorage.removeItem('userRole');
+          window.location.href = '/';
+        }
+        return Promise.reject(error);
+      }
+
       const rt = localStorage.getItem('refreshToken');
       if (!rt) {
         if (!config.IS_E2E) {
@@ -116,16 +140,19 @@ api.interceptors.response.use(
         }
         return Promise.reject(error);
       }
+
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           refreshSubscribers.push((token) => {
             if (!token) return reject(error);
             originalRequest.headers = originalRequest.headers || {};
             originalRequest.headers.Authorization = `Bearer ${token}`;
+            originalRequest._retry = true;
             resolve(api(originalRequest));
           });
         });
       }
+
       try {
         isRefreshing = true;
         const res = await api.post('/auth/refresh', { refreshToken: rt });
@@ -140,12 +167,14 @@ api.interceptors.response.use(
           subs.forEach((cb) => { try { cb(newToken); } catch (_) { void 0; } });
           originalRequest.headers = originalRequest.headers || {};
           originalRequest.headers.Authorization = `Bearer ${newToken}`;
+          originalRequest._retry = true;
           return api(originalRequest);
         }
       } catch (_) {
         isRefreshing = false;
         refreshSubscribers = [];
       }
+
       if (!config.IS_E2E) {
         localStorage.removeItem('authToken');
         localStorage.removeItem('refreshToken');
@@ -169,6 +198,9 @@ api.interceptors.response.use(
 
 // Helper function to get user-friendly error messages
 const getUserFriendlyErrorMessage = (error) => {
+  if (error.code === 'ECONNABORTED') {
+    return 'Request timed out. Please try again.';
+  }
   if (!error.response) {
     return 'Network error. Please check your internet connection.';
   }
@@ -184,20 +216,28 @@ const getUserFriendlyErrorMessage = (error) => {
     case 400:
       return (message || 'Invalid request. Please check your input.') + detailString;
     case 401:
-      return 'Authentication required. Please log in again.';
+      return (message || 'Authentication required. Please log in again.');
     case 403:
       return (message || 'You do not have permission to perform this action.') + detailString;
     case 404:
       return 'The requested resource was not found.';
+    case 405:
+      return 'Method not allowed. Please contact support.';
+    case 408:
+      return 'Request timeout. Please try again.';
     case 409:
       return message || 'Conflict with existing data.';
+    case 413:
+      return 'File size too large. Please upload a smaller file.';
     case 422:
       return (message || 'Validation error. Please check your input.') + detailString;
     case 429:
       return 'Too many requests. Please try again later.';
     case 500:
-      return 'Server error. Please try again later.';
+      return 'Internal server error. Our team has been notified.';
+    case 502:
     case 503:
+    case 504:
       return 'Service temporarily unavailable. Please try again later.';
     default:
       return message || 'An unexpected error occurred. Please try again.';
@@ -297,6 +337,7 @@ export const adminAPI = {
   // Grades
   createGrade: (gradeData, config) => api.post('/admin/grades', gradeData, config),
   getGrades: (params = {}, config = {}) => api.get('/admin/grades', { params, ...config }),
+
   // NEW: minimal subject creation (Course with defaults)
   createSimpleSubject: (payload, config) => api.post('/admin/subjects/simple', payload, config),
 };
@@ -344,9 +385,6 @@ export const facultyAPI = {
   updateOnlineClassStatus: (id, status) => api.patch(`/faculty/online-classes/${id}/status`, { status }),
   deleteCourse: (id, config) => api.delete(`/faculty/courses/${id}`, config),
 };
- 
-
-// Courses API calls
 
 // Subjects API calls
 export const subjectAPI = {
