@@ -134,7 +134,7 @@ export default function AdminDashboard() {
       <ErrorBanner />
       <div className="dashboard-header">
         <h1>Admin Dashboard</h1>
-        <p>Welcome back, {user?.firstName || user?.name || 'Admin'}</p>
+        <p>Welcome back, Sunil Yadav</p>
       </div>
 
       {/* Stats Grid */}

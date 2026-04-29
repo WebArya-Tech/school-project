@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FaSearch, FaPlus, FaEdit, FaEye, FaDownload, FaFilter, FaMoneyBillWave, FaCalendarAlt, FaUsers } from 'react-icons/fa';
+import { FaSearch, FaPlus, FaEdit, FaEye, FaDownload, FaFilter, FaMoneyBillWave, FaCalendarAlt, FaUsers, FaTrash } from 'react-icons/fa';
 import { useAuth } from '../../contexts/AuthContext';
 import config from '../../config/config.js';
 import { adminAPI } from '../../services/api.js';
@@ -55,7 +55,7 @@ export default function FeeManagement() {
 
   const toModelClass = (value) => {
     const map = {
-      NS: 'NS',
+      NS: 'Nursery',
       LKG: 'LKG',
       UKG: 'UKG',
       '1st': '1',
@@ -196,6 +196,17 @@ export default function FeeManagement() {
     setModalType('viewStructure');
     setSelectedItem(structure);
     setShowModal(true);
+  };
+
+  const handleDeleteFeeStructure = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this fee structure?')) return;
+    try {
+      await adminAPI.deleteFeeStructure(id);
+      await fetchData();
+      alert('Fee structure deleted successfully!');
+    } catch (err) {
+      alert(`Error: ${err.userMessage || err.message}`);
+    }
   };
 
   const handleRecordPayment = () => {
@@ -394,7 +405,7 @@ export default function FeeManagement() {
                     {data.feeStructures?.map((structure) => (
                       <tr key={structure._id} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {structure.class}
+                          {fromModelClass(structure.class)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {structure.academicYear}
@@ -406,11 +417,14 @@ export default function FeeManagement() {
                           {structure.paymentSchedule.replace('_', ' ').toUpperCase()}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <button className="text-blue-600 hover:text-blue-900 mr-3" onClick={() => handleViewFeeStructure(structure)}>
+                          <button className="text-blue-600 hover:text-blue-900 mr-3" onClick={() => handleViewFeeStructure(structure)} title="View">
                             <FaEye />
                           </button>
-                          <button className="text-green-600 hover:text-green-900" onClick={() => handleEditFeeStructure(structure)}>
+                          <button className="text-green-600 hover:text-green-900 mr-3" onClick={() => handleEditFeeStructure(structure)} title="Edit">
                             <FaEdit />
+                          </button>
+                          <button className="text-red-600 hover:text-red-900" onClick={() => handleDeleteFeeStructure(structure._id)} title="Delete">
+                            <FaTrash />
                           </button>
                         </td>
                       </tr>

@@ -103,31 +103,29 @@ const FacultyAssignment = () => {
         name
       }));
 
-      const normalizedAssignments = (assignmentsData || []).map(a => ({
-        id: a._id || a.id,
-        facultyId: a.facultyId || a.faculty?._id,
-        courseId: a.courseId || a.course?._id,
-        classId: a.classId || a.class?._id,
-        session: (a.session?.toString?.() || a.session || a.semester || '1'),
-        academicYear: a.academicYear,
-        assignmentType: a.assignmentType || 'primary',
-        startDate: a.startDate,
-        endDate: a.endDate,
-        workload: a.workload || 0,
-        notes: a.notes || '',
-        completed: !!a.completed,
-        faculty: a.faculty || normalizedFaculty.find(f => f.id === (a.facultyId || a.faculty?._id)),
-        course: (
-          a.course 
-          || normalizedCourses.find(c => c.id === (a.courseId || a.course?._id))
-          || { id: a.courseId || 'GENERAL', code: '-', name: 'General' }
-        ),
-        class: (
-          a.class 
-          || normalizedClasses.find(cl => cl.id === (a.classId || a.class?._id))
-          || { id: a.classId || 'GENERAL', name: 'General' }
-        )
-      }));
+      const normalizedAssignments = (assignmentsData || []).map(a => {
+        const facultyObj = a.faculty || normalizedFaculty.find(f => f.id === (a.facultyId || a.faculty?._id)) || { name: 'Unknown', department: 'N/A' };
+        const courseObj = a.course || normalizedCourses.find(c => c.id === (a.courseId || a.course?._id)) || { id: a.courseId || 'GENERAL', code: '-', name: 'General' };
+        const classObj = a.class || normalizedClasses.find(cl => cl.id === (a.classId || a.class?._id)) || { id: a.classId || 'GENERAL', name: 'General' };
+
+        return {
+          id: a._id || a.id,
+          facultyId: a.facultyId || a.faculty?._id,
+          courseId: a.courseId || a.course?._id,
+          classId: a.classId || a.class?._id,
+          session: (a.session?.toString?.() || a.session || a.semester || '1'),
+          academicYear: a.academicYear,
+          assignmentType: a.assignmentType || 'primary',
+          startDate: a.startDate,
+          endDate: a.endDate,
+          workload: a.workload || 0,
+          notes: a.notes || '',
+          completed: !!a.completed,
+          faculty: facultyObj,
+          course: courseObj,
+          class: classObj
+        };
+      });
 
       setFaculty(normalizedFaculty);
       setCourses(normalizedCourses);
@@ -264,12 +262,12 @@ const FacultyAssignment = () => {
     setEditingAssignment(assignment);
     setFormData({
       employeeId: assignment.employeeId || assignment.faculty?.employeeId || '',
-      academicYear: assignment.academicYear,
-      assignmentType: assignment.assignmentType,
-      startDate: assignment.startDate,
-      endDate: assignment.endDate,
-      workload: assignment.workload.toString(),
-      notes: assignment.notes
+      academicYear: assignment.academicYear || '',
+      assignmentType: assignment.assignmentType || 'primary',
+      startDate: assignment.startDate || '',
+      endDate: assignment.endDate || '',
+      workload: (assignment.workload ?? 0).toString(),
+      notes: assignment.notes || ''
     });
     setShowForm(true);
   };
@@ -319,8 +317,8 @@ const FacultyAssignment = () => {
 
   const getFilteredAssignments = () => {
     return assignments.filter(assignment => {
-      const matchesFaculty = !filterFaculty || assignment.facultyId === parseInt(filterFaculty);
-      const matchesDepartment = !filterDepartment || assignment.faculty.department === filterDepartment;
+      const matchesFaculty = !filterFaculty || String(assignment.facultyId) === String(filterFaculty);
+      const matchesDepartment = !filterDepartment || assignment.faculty?.department === filterDepartment;
       return matchesFaculty && matchesDepartment;
     });
   };
@@ -382,8 +380,8 @@ const FacultyAssignment = () => {
     return (
       <div className="faculty-workload-grid">
         {faculty.map(member => {
-          const currentWorkload = getFacultyWorkload(member.id, academicYears[0]);
-          const workloadPercentage = (currentWorkload / member.maxWorkload) * 100;
+          const currentWorkload = getFacultyWorkload(member.id, academicYears[0] || '');
+          const workloadPercentage = member.maxWorkload > 0 ? (currentWorkload / member.maxWorkload) * 100 : 0;
           
           return (
             <div key={member.id} className="faculty-workload-card">
