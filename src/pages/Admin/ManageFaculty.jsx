@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { FaSearch, FaEdit, FaTrash, FaUserPlus, FaEye } from 'react-icons/fa';
 import { useAuth } from '../../contexts/AuthContext';
 import { adminAPI } from '../../services/api';
@@ -9,6 +10,7 @@ import FacultyForm from '../../components/admin/FacultyForm';
 import './ManageFaculty.css';
 
 export default function ManageFaculty() {
+  const navigate = useNavigate();
   const { token } = useAuth();
   const { loading, setLoading } = useLoading();
   const { showSuccess, showError } = useNotification();
@@ -78,9 +80,8 @@ export default function ManageFaculty() {
     setIsFormOpen(true);
   };
 
-  const handleViewFaculty = (faculty) => {
-    setSelectedFaculty(faculty);
-    setIsFormOpen(true);
+  const handleViewFaculty = (member) => {
+    navigate(`/admin/faculty/${member._id || member.id}`);
   };
 
   const handleDeleteFaculty = (faculty) => {
@@ -138,6 +139,9 @@ export default function ManageFaculty() {
         phone: formData.phone,
         department: formData.department,
         designation: formData.designation,
+        qualification: formData.qualification,
+        experience: formData.experience,
+        specialization: formData.specialization,
         // Model expects joiningDate
         joiningDate: formData.joiningDate || undefined,
         // Normalize address to object shape

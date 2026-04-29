@@ -23,7 +23,12 @@ const FeePayment = () => {
 
   const toModelClass = (value) => {
     if (value === 'NS') return 'Nursery';
-    return value; // LKG, UKG, numeric strings already match
+    return value; // LKG, UKG, and numeric strings 1-12 already match the DB
+  };
+
+  const fromModelClass = (value) => {
+    if (value === 'Nursery') return 'NS';
+    return value;
   };
 
   useEffect(() => {
@@ -264,7 +269,7 @@ const FeePayment = () => {
                     <tbody>
                       {feeStructures.map((fs) => (
                         <tr key={fs._id}>
-                          <td>{fs.class}</td>
+                          <td>{fromModelClass(fs.class)}</td>
                           <td>₹{fs.totalAmount}</td>
                           <td>{String(fs.paymentSchedule).replace('_', ' ')}</td>
                         </tr>

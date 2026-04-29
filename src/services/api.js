@@ -305,6 +305,7 @@ export const adminAPI = {
 
   // Faculty
   getFaculty: (config) => api.get('/admin/faculty', config),
+  getFacultyById: (id, config) => api.get(`/admin/faculty/${id}`, config),
   addFaculty: (facultyData, config) => api.post('/admin/faculty', facultyData, config),
   updateFaculty: (id, facultyData, config) => api.put(`/admin/faculty/${id}`, facultyData, config),
   deleteFaculty: (id, config) => api.delete(`/admin/faculty/${id}`, config),
@@ -332,6 +333,7 @@ export const adminAPI = {
   // Fees
   getFees: (config) => api.get('/admin/fees', config),
   createFeeStructure: (feeStructureData, config) => api.post('/admin/fees/structure', feeStructureData, config),
+  deleteFeeStructure: (id, config) => api.delete(`/admin/fees/structure/${id}`, config),
   recordPayment: (paymentData, config) => api.post('/admin/fees/payment', paymentData, config),
 
   // Grades

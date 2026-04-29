@@ -102,12 +102,19 @@ export default function ManageStudents() {
 
   const handleFormSubmit = async (formData) => {
     try {
-      const response = await adminAPI.addStudent(formData, { retry: true });
+      let response;
+      if (selectedStudent) {
+        // Update existing student
+        response = await adminAPI.updateStudent(selectedStudent._id, formData, { retry: true });
+      } else {
+        // Add new student
+        response = await adminAPI.addStudent(formData, { retry: true });
+      }
       const saved = response?.data?.data;
       if (!saved) throw new Error('Invalid response from server');
       handleFormSave(saved);
     } catch (err) {
-      showError(err.userMessage || 'Failed to add student');
+      showError(err.userMessage || 'Failed to save student');
     }
   };
 

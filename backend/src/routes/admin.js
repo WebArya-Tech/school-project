@@ -229,6 +229,29 @@ router.get('/students', authenticateToken, requireRole(['admin']), async (req, r
       } },
       { $match: { 'user.status': 'active' } },
       { $sort: { createdAt: -1 } },
+      { $project: { // Explicitly project all needed fields
+          _id: 1,
+          rollNumber: 1,
+          class: 1,
+          section: 1,
+          admissionDate: 1,
+          'medicalInfo.bloodGroup': 1,
+          'father.name': 1,
+          'mother.name': 1,
+          'guardian.phone': 1,
+          status: 1,
+          user: { // Project the entire user object with specific fields
+            _id: '$user._id',
+            firstName: '$user.firstName',
+            lastName: '$user.lastName',
+            email: '$user.email',
+            phone: '$user.phone',
+            dateOfBirth: '$user.dateOfBirth',
+            gender: '$user.gender',
+            address: '$user.address',
+            emergencyContact: '$user.emergencyContact'
+          }
+      }},
       { $facet: { data: [{ $skip: skip }, { $limit: limitNum }], totalCount: [{ $count: 'count' }] } }
     ];
 
@@ -264,9 +287,9 @@ router.get('/students/:id', authenticateToken, requireRole(['admin']), async (re
     const { id } = req.params;
 
     // Try fetching by Student ID first; if not found, treat id as User ID
-    let studentDoc = await Student.findById(id).populate('user', 'firstName lastName email phone dateOfBirth gender status');
+    let studentDoc = await Student.findById(id).populate('user', 'firstName lastName email phone dateOfBirth gender status address');
     if (!studentDoc) {
-      studentDoc = await Student.findOne({ user: id }).populate('user', 'firstName lastName email phone dateOfBirth gender status');
+      studentDoc = await Student.findOne({ user: id }).populate('user', 'firstName lastName email phone dateOfBirth gender status address');
     }
 
     if (!studentDoc) {
@@ -410,7 +433,17 @@ router.post('/students', authenticateToken, requireRole(['admin']), async (req, 
     if (!name || !email || !phone || !studentClass || !section || !rollNumber || !admissionDate || !dateOfBirth || !gender) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required fields: name, email, phone, rollNumber, class, section, admissionDate, dateOfBirth, gender'
+        message: `Missing required fields: ${[
+          !name && 'name',
+          !email && 'email',
+          !phone && 'phone',
+          !rollNumber && 'rollNumber',
+          !studentClass && 'class',
+          !section && 'section',
+          !admissionDate && 'admissionDate',
+          !dateOfBirth && 'dateOfBirth',
+          !gender && 'gender'
+        ].filter(Boolean).join(', ')}`
       });
     }
 
@@ -598,27 +631,66 @@ router.put('/students/:id', authenticateToken, requireRole(['admin']), async (re
       return res.status(404).json({ success: false, message: 'Student not found' });
     }
 
+    // Normalize inputs
+    const normalizeDigits = (val) => (val ? String(val).replace(/\D/g, '') : '');
+    
+    // Validate dates early to avoid CastError 500s
+    const isValidDate = (val) => {
+      if (!val) return true;
+      const d = new Date(val);
+      return !isNaN(d.getTime());
+    };
+    const dateErrors = [];
+    if (dateOfBirth && !isValidDate(dateOfBirth)) dateErrors.push({ path: 'dateOfBirth', message: 'Invalid date format' });
+    if (admissionDate && !isValidDate(admissionDate)) dateErrors.push({ path: 'admissionDate', message: 'Invalid date format' });
+    if (dateErrors.length) {
+      return res.status(422).json({ success: false, message: 'Validation failed', errors: dateErrors });
+    }
+
     // Update user
     if (name) {
-      const [firstName, ...rest] = name.trim().split(' ');
-      student.user.firstName = firstName;
-      student.user.lastName = rest.join(' ');
+      const parts = name.trim().split(/\s+/);
+      student.user.firstName = parts[0];
+      student.user.lastName = parts.slice(1).join(' ');
     }
-    if (email) student.user.email = email;
-    if (phone) student.user.phone = phone;
+    if (email) student.user.email = email.toLowerCase();
+    if (phone) student.user.phone = normalizeDigits(phone);
     if (dateOfBirth) student.user.dateOfBirth = new Date(dateOfBirth);
     if (gender) student.user.gender = String(gender).toLowerCase();
     if (address) student.user.address = { ...(student.user.address || {}), street: address };
+    
+    // Save user changes first
     await student.user.save();
 
     // Update student doc
     if (rollNumber) student.rollNumber = rollNumber;
-    if (studentClass) student.class = studentClass;
-    if (section) student.section = section;
+    if (studentClass) {
+      const classMap = {
+        '1st': '1', '2nd': '2', '3rd': '3', '4th': '4', '5th': '5',
+        '6th': '6', '7th': '7', '8th': '8', '9th': '9', '10th': '10',
+        '11th': '11', '12th': '12'
+      };
+      student.class = classMap[studentClass] || studentClass;
+    }
+    
+    // Handle section carefully - don't set empty string if it's required
+    if (section && section.trim()) {
+      student.section = section.trim().toUpperCase();
+    }
+    
     if (admissionDate) student.admissionDate = new Date(admissionDate);
     if (fatherName) student.father = { ...(student.father || {}), name: fatherName };
     if (motherName) student.mother = { ...(student.mother || {}), name: motherName };
-    if (guardianPhone) student.guardian = { ...(student.guardian || {}), phone: guardianPhone };
+    
+    if (guardianPhone) {
+      const gPhone = normalizeDigits(guardianPhone);
+      if (student.guardian) {
+        student.guardian.phone = gPhone;
+      } else {
+        student.guardian = { name: fatherName || 'Guardian', relationship: 'parent', phone: gPhone };
+      }
+    }
+    
     if (bloodGroup) student.medicalInfo = { ...(student.medicalInfo || {}), bloodGroup };
     if (status) student.status = status;
 
@@ -628,6 +700,28 @@ router.put('/students/:id', authenticateToken, requireRole(['admin']), async (re
     res.json({ success: true, message: 'Student updated successfully', data: updatedStudent });
   } catch (error) {
     console.error('Update student error:', error);
+    
+    // Handle duplicate key errors (e.g., email change)
+    if (error && (error.code === 11000 || error.name === 'MongoServerError')) {
+      const key = (error.keyPattern && Object.keys(error.keyPattern)[0]) || 'unknown';
+      const val = (error.keyValue && error.keyValue[key]) || undefined;
+      return res.status(409).json({ 
+        success: false, 
+        message: `Duplicate value for '${key}'${val ? `: ${val}` : ''}` 
+      });
+    }
+
+    // Handle validation errors
+    if (error.name === 'ValidationError') {
+      const details = Object.values(error.errors).map(e => ({ path: e.path, message: e.message }));
+      return res.status(422).json({ success: false, message: 'Validation failed', errors: details });
+    }
+
+    // Handle cast errors
+    if (error.name === 'CastError') {
+      return res.status(422).json({ success: false, message: 'Invalid data provided', errors: [{ path: error.path, message: error.message }] });
+    }
+
     res.status(500).json({ success: false, message: 'Error updating student', error: error.message });
   }
 });
@@ -716,11 +810,16 @@ router.get('/faculty', authenticateToken, requireRole(['admin']), async (req, re
         subjects: 1,
         joiningDate: 1,
         status: 1,
+        qualifications: 1,
+        experience: 1,
+        salary: 1,
+        specializations: 1,
         'userDetails.firstName': 1,
         'userDetails.lastName': 1,
         'userDetails.email': 1,
         'userDetails.phone': 1,
-        'userDetails.status': 1
+        'userDetails.status': 1,
+        'userDetails.address': 1
       } },
       { $sort: { 'userDetails.firstName': 1 } },
       { $skip: skip },
@@ -748,8 +847,13 @@ router.get('/faculty', authenticateToken, requireRole(['admin']), async (req, re
       department: f.department,
       designation: f.designation,
       subjects: f.subjects,
-      joiningDate: f.joiningDate,
-      status: 'Active'
+      joiningDate: f.joiningDate ? new Date(f.joiningDate).toISOString().split('T')[0] : '',
+      status: f.status || 'Active',
+      qualification: Array.isArray(f.qualifications) ? (f.qualifications[0]?.degree || '') : (f.qualifications || ''),
+      experience: f.experience?.totalYears || 0,
+      salary: f.salary?.basic || 0,
+      specialization: Array.isArray(f.specializations) ? (f.specializations[0] || '') : (f.specializations || ''),
+      address: f.userDetails.address?.street || f.userDetails.address || ''
     }));
 
     const pagination = {
@@ -792,6 +896,7 @@ router.post('/faculty', authenticateToken, requireRole(['admin']), async (req, r
       salary,
       address,
       emergencyContact,
+      specialization,
       status
     } = req.body;
 
@@ -922,8 +1027,9 @@ router.post('/faculty', authenticateToken, requireRole(['admin']), async (req, r
       employeeId,
       department: normalizedDepartment,
       designation: normalizedDesignation,
-      qualifications: Array.isArray(qualification) ? qualification : [],
-      experience: (experience && typeof experience === 'object') ? experience : defaultExperience,
+      qualifications: Array.isArray(qualification) ? qualification : (qualification ? [{ degree: qualification, institution: 'N/A', year: new Date().getFullYear() }] : []),
+      experience: (experience && typeof experience === 'object') ? experience : { totalYears: Number(experience) || 0, previousSchools: [] },
+      specializations: Array.isArray(specialization) ? specialization : (specialization ? [specialization] : []),
       joiningDate: joiningDate || dateOfJoining || new Date(),
       employmentType: 'permanent',
       salary: {
@@ -981,6 +1087,44 @@ router.post('/faculty', authenticateToken, requireRole(['admin']), async (req, r
   }
 });
 
+// @route   GET /api/admin/faculty/:id
+// @desc    Get single faculty member details
+// @access  Private (Admin only)
+router.get('/faculty/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const faculty = await Faculty.findById(id).populate('user', 'firstName lastName email phone dateOfBirth gender status address');
+    
+    if (!faculty) {
+      return res.status(404).json({ success: false, message: 'Faculty member not found' });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        profile: {
+          id: faculty._id,
+          employeeId: faculty.employeeId,
+          name: `${faculty.user.firstName} ${faculty.user.lastName}`,
+          email: faculty.user.email,
+          phone: faculty.user.phone,
+          department: faculty.department,
+          designation: faculty.designation,
+          status: faculty.status,
+          joiningDate: faculty.joiningDate,
+          qualification: Array.isArray(faculty.qualifications) ? (faculty.qualifications[0]?.degree || '') : (faculty.qualifications || ''),
+          experience: faculty.experience?.totalYears || 0,
+          specialization: Array.isArray(faculty.specializations) ? (faculty.specializations[0] || '') : (faculty.specializations || ''),
+          address: faculty.user.address?.street || faculty.user.address || ''
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get faculty details error:', error);
+    res.status(500).json({ success: false, message: 'Error fetching faculty details', error: error.message });
+  }
+});
+
 // @route   PUT /api/admin/faculty/:id
 // @desc    Update faculty member
 // @access  Private (Admin only)
@@ -998,6 +1142,7 @@ router.put('/faculty/:id', authenticateToken, requireRole(['admin']), async (req
       qualification,
       experience,
       salary,
+      specialization,
       status,
       address,
       emergencyContact
@@ -1035,12 +1180,19 @@ router.put('/faculty/:id', authenticateToken, requireRole(['admin']), async (req
     // Update faculty information
     if (department) faculty.department = department;
     if (designation) faculty.designation = designation;
-    if (qualification) faculty.qualification = qualification;
-    if (experience !== undefined) faculty.experience = experience;
+    if (qualification) {
+      faculty.qualifications = Array.isArray(qualification) ? qualification : [{ degree: qualification, institution: 'N/A', year: new Date().getFullYear() }];
+    }
+    if (experience !== undefined) {
+      faculty.experience = (experience && typeof experience === 'object') ? experience : { totalYears: Number(experience) || 0, previousSchools: [] };
+    }
+    if (specialization) {
+      faculty.specializations = Array.isArray(specialization) ? specialization : [specialization];
+    }
     if (salary) {
-      faculty.salary.basic = salary;
-      faculty.salary.allowances.hra = salary * 0.2;
-      faculty.salary.allowances.da = salary * 0.1;
+      faculty.salary.basic = Number(salary);
+      faculty.salary.allowances.hra = Number(salary) * 0.2;
+      faculty.salary.allowances.da = Number(salary) * 0.1;
     }
     if (status) faculty.status = String(status).toLowerCase();
     if (emergencyContact) faculty.emergencyContact = { ...faculty.emergencyContact, ...emergencyContact };
@@ -1200,7 +1352,6 @@ router.get('/admissions', async (req, res) => {
     // Execute query with pagination
     const [admissions, totalCount] = await Promise.all([
       Admission.find(filter)
-        .select('applicationNumber studentInfo.fullName academicInfo.applyingForClass academicInfo.academicYear status priority contactInfo.email contactInfo.phone feeInfo.paymentStatus createdAt')
         .sort(sort)
         .skip(skip)
         .limit(parseInt(limit))
@@ -1257,7 +1408,7 @@ router.get('/admissions', async (req, res) => {
 // @route   PUT /api/admin/admissions/:id/approve
 // @desc    Approve admission application
 // @access  Private (Admin only)
-router.put('/admissions/:id/approve', async (req, res) => {
+router.put('/admissions/:id/approve', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const { id } = req.params;
     const { remarks, assignedClass, assignedSection } = req.body;
@@ -1281,21 +1432,23 @@ router.put('/admissions/:id/approve', async (req, res) => {
       });
     }
 
-    // Check if required documents are uploaded
+    /* Document check removed to make documents optional
     if (!admission.areRequiredDocumentsUploaded()) {
       return res.status(400).json({
         success: false,
         message: 'Required documents are not uploaded. Cannot approve application.'
       });
     }
+    */
 
-    // Check payment status
+    /* Payment check removed to make it optional for admin approval
     if (admission.feeInfo.paymentStatus !== 'paid') {
       return res.status(400).json({
         success: false,
         message: 'Admission fee payment is pending. Cannot approve application.'
       });
     }
+    */
 
     // Update admission status
     admission.status = 'approved';
@@ -1308,7 +1461,13 @@ router.put('/admissions/:id/approve', async (req, res) => {
 
     // Update academic info if provided
     if (assignedClass) {
-      admission.academicInfo.applyingForClass = assignedClass;
+      // Normalize class value to match schema enum (e.g., '12th' -> '12')
+      const classMap = {
+        '1st': '1', '2nd': '2', '3rd': '3', '4th': '4', '5th': '5',
+        '6th': '6', '7th': '7', '8th': '8', '9th': '9', '10th': '10',
+        '11th': '11', '12th': '12'
+      };
+      admission.academicInfo.applyingForClass = classMap[assignedClass] || assignedClass;
     }
     
     if (assignedSection) {
@@ -1360,7 +1519,7 @@ router.put('/admissions/:id/approve', async (req, res) => {
 // @route   PUT /api/admin/admissions/:id/reject
 // @desc    Reject admission application
 // @access  Private (Admin only)
-router.put('/admissions/:id/reject', async (req, res) => {
+router.put('/admissions/:id/reject', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const { id } = req.params;
     const { reason, remarks } = req.body;
@@ -1788,13 +1947,65 @@ router.post('/fees/structure', authenticateToken, requireRole(['admin']), async 
     });
 
   } catch (error) {
-  console.error('Create fee structure error:', error);
-  res.status(500).json({
-    success: false,
-    message: 'Error creating fee structure',
-    error: error.message
-  });
-}
+    console.error('Create fee structure error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error creating fee structure',
+      error: error.message
+    });
+  }
+});
+
+// @route   DELETE /api/admin/fees/structure/:id
+// @desc    Delete a fee structure
+// @access  Private (Admin only)
+router.delete('/fees/structure/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    if (process.env.E2E_MODE === 'true') {
+      const { id } = req.params;
+      e2eFeesState.feeStructures = e2eFeesState.feeStructures.filter(fs => fs._id !== id);
+      return res.json({ success: true, message: 'Fee structure deleted (E2E)' });
+    }
+
+    const { id } = req.params;
+    const structure = await FeeStructure.findById(id);
+
+    if (!structure) {
+      return res.status(404).json({
+        success: false,
+        message: 'Fee structure not found'
+      });
+    }
+
+    // Check if there are any payments associated with this structure
+    const paymentCount = await FeePayment.countDocuments({ feeStructure: id });
+    if (paymentCount > 0) {
+      // Instead of hard delete, we could mark as inactive
+      structure.isActive = false;
+      structure.updatedBy = req.user._id || req.user.id;
+      await structure.save();
+      
+      return res.json({
+        success: true,
+        message: 'Fee structure marked as inactive because it has associated payments'
+      });
+    }
+
+    await FeeStructure.findByIdAndDelete(id);
+
+    res.json({
+      success: true,
+      message: 'Fee structure deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('Delete fee structure error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error deleting fee structure',
+      error: error.message
+    });
+  }
 });
 
 // @route   POST /api/admin/grades
