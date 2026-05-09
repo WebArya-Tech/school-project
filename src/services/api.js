@@ -342,6 +342,10 @@ export const adminAPI = {
 
   // NEW: minimal subject creation (Course with defaults)
   createSimpleSubject: (payload, config) => api.post('/admin/subjects/simple', payload, config),
+
+  // Student Promotion
+  promoteStudents: (payload, config) => api.post('/admin/students/promote', payload, config),
+  getPromotionHistory: (config) => api.get('/admin/students/promotion-history', config),
 };
 
 // Student API calls

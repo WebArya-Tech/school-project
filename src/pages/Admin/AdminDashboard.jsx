@@ -14,7 +14,8 @@ import {
   FaUserCheck,
   FaGraduationCap as FaStudentEnrollment,
   FaChartBar,
-  FaSyncAlt
+  FaSyncAlt,
+  FaArrowAltCircleUp
 } from 'react-icons/fa';
 import { useAuth } from '../../contexts/AuthContext';
 import './AdminDashboard.css';
@@ -273,6 +274,9 @@ export default function AdminDashboard() {
               </button>
               <button className="action-btn" onClick={() => navigate('/admin/grades')}>
                 <FaGraduationCap /> Grade Management
+              </button>
+              <button className="action-btn" onClick={() => navigate('/admin/promote-students')} style={{ background: 'linear-gradient(135deg, #1a7f37 0%, #22863a 100%)' }}>
+                <FaArrowAltCircleUp /> Promote Students
               </button>
             </div>
           </div>
