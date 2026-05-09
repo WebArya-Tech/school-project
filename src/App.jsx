@@ -34,6 +34,7 @@ import TransportManagement from './pages/Admin/TransportManagement.jsx';
 // Grade Management (Admin reuses FacultyGrades)
 import AdminStudentProfile from './pages/Admin/StudentProfile.jsx';
 import AdminFacultyProfile from './pages/Admin/FacultyProfile.jsx';
+import PromoteStudents from './pages/Admin/PromoteStudents.jsx';
 
 // Faculty Pages
 import FacultyDashboard from './pages/Faculty/FacultyDashboard';
@@ -113,6 +114,7 @@ function App() {
                 <Route path="/admin/grades" element={<ProtectedRoute roles={['admin']}><AdminGrades /></ProtectedRoute>} />
                 <Route path="/admin/student/:id" element={<ProtectedRoute roles={['admin']}><AdminStudentProfile /></ProtectedRoute>} />
                 <Route path="/admin/faculty/:id" element={<ProtectedRoute roles={['admin']}><AdminFacultyProfile /></ProtectedRoute>} />
+                <Route path="/admin/promote-students" element={<ProtectedRoute roles={['admin']}><PromoteStudents /></ProtectedRoute>} />
                 
                 {/* Faculty Routes */}
                 <Route path="/faculty" element={<Navigate to="/faculty/dashboard" replace />} />

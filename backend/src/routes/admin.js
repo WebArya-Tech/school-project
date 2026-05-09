@@ -279,6 +279,110 @@ router.get('/students', authenticateToken, requireRole(['admin']), async (req, r
   }
 });
 
+// @route   POST /api/admin/students/promote
+// @desc    Bulk-promote students to a new class and academic year
+// @access  Private (Admin only)
+router.post('/students/promote', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const { studentIds, toClass, toAcademicYear, remarks } = req.body;
+    if (!studentIds || !Array.isArray(studentIds) || studentIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'studentIds array is required' });
+    }
+    if (!toClass || !toAcademicYear) {
+      return res.status(400).json({ success: false, message: 'toClass and toAcademicYear are required' });
+    }
+    // Validate academic year format
+    if (!/^\d{4}-\d{4}$/.test(toAcademicYear)) {
+      return res.status(400).json({ success: false, message: 'toAcademicYear must be in format YYYY-YYYY' });
+    }
+
+    const validClasses = ['NS', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'];
+    if (!validClasses.includes(toClass)) {
+      return res.status(400).json({ success: false, message: `Invalid toClass. Must be one of: ${validClasses.join(', ')}` });
+    }
+
+    const adminUserId = req.user?._id || req.user?.id;
+    const promoted = [];
+    const errors = [];
+
+    for (const sid of studentIds) {
+      try {
+        const student = await Student.findById(sid);
+        if (!student) { errors.push({ id: sid, reason: 'Student not found' }); continue; }
+
+        const historyEntry = {
+          fromClass: student.class,
+          toClass,
+          fromAcademicYear: student.academicYear,
+          toAcademicYear,
+          promotedAt: new Date(),
+          promotedBy: adminUserId,
+          remarks: remarks || ''
+        };
+
+        student.class = toClass;
+        student.academicYear = toAcademicYear;
+        student.isPromoted = true;
+        student.promotionHistory = [...(student.promotionHistory || []), historyEntry];
+        await student.save();
+        promoted.push({ id: String(student._id), rollNumber: student.rollNumber, fromClass: historyEntry.fromClass, toClass });
+      } catch (err) {
+        errors.push({ id: sid, reason: err.message });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Promoted ${promoted.length} student(s) successfully${errors.length ? `, ${errors.length} failed` : ''}.`,
+      data: { promoted, errors }
+    });
+  } catch (error) {
+    console.error('Promote students error:', error);
+    res.status(500).json({ success: false, message: 'Error promoting students', error: error.message });
+  }
+});
+
+// @route   GET /api/admin/students/promotion-history
+// @desc    Get promotion history — optionally filtered by class or academicYear
+// @access  Private (Admin only)
+router.get('/students/promotion-history', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const { class: filterClass, academicYear, page = 1, limit = 50 } = req.query;
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    const skip = (pageNum - 1) * limitNum;
+
+    const match = { 'promotionHistory.0': { $exists: true } };
+    if (filterClass) match.class = filterClass;
+    if (academicYear) match.academicYear = academicYear;
+
+    const students = await Student.find(match)
+      .populate('user', 'firstName lastName email phone')
+      .populate('promotionHistory.promotedBy', 'firstName lastName')
+      .select('rollNumber class section academicYear promotionHistory user')
+      .sort({ updatedAt: -1 })
+      .skip(skip)
+      .limit(limitNum);
+
+    const total = await Student.countDocuments(match);
+
+    res.json({
+      success: true,
+      data: {
+        records: students,
+        pagination: {
+          currentPage: pageNum,
+          totalPages: Math.max(1, Math.ceil(total / limitNum)),
+          total
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Promotion history error:', error);
+    res.status(500).json({ success: false, message: 'Error fetching promotion history', error: error.message });
+  }
+});
+
 // @route   GET /api/admin/students/:id
 // @desc    Get single student with detailed profile, grades, and attendance
 // @access  Private (Admin only)

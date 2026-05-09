@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaSearch, FaEdit, FaTrash, FaUserPlus, FaSyncAlt, FaEye } from 'react-icons/fa';
+import { FaSearch, FaEdit, FaTrash, FaUserPlus, FaSyncAlt, FaEye, FaDownload, FaFileExcel, FaTimes } from 'react-icons/fa';
+import * as XLSX from 'xlsx';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLoading, useMultipleLoading } from '../../hooks/useLoading';
 import { useNotification } from '../../components/Notification';
@@ -23,7 +24,12 @@ export default function ManageStudents() {
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
-  
+
+  // Download by class state
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
+  const [downloadClass, setDownloadClass] = useState('');
+  const [isDownloading, setIsDownloading] = useState(false);
+
   const { loading, withLoading } = useLoading();
   const { setLoading: setActionLoading, isLoading: isActionLoading } = useMultipleLoading();
 
@@ -150,6 +156,102 @@ export default function ManageStudents() {
     withLoading(() => fetchStudents(currentPage, searchTerm));
   };
 
+  // Class options for the download modal
+  const classOptions = [
+    { value: 'NS', label: 'Nursery' },
+    { value: 'LKG', label: 'LKG' },
+    { value: 'UKG', label: 'UKG' },
+    { value: '1', label: 'Class 1' },
+    { value: '2', label: 'Class 2' },
+    { value: '3', label: 'Class 3' },
+    { value: '4', label: 'Class 4' },
+    { value: '5', label: 'Class 5' },
+    { value: '6', label: 'Class 6' },
+    { value: '7', label: 'Class 7' },
+    { value: '8', label: 'Class 8' },
+    { value: '9', label: 'Class 9' },
+    { value: '10', label: 'Class 10' },
+    { value: '11', label: 'Class 11' },
+    { value: '12', label: 'Class 12' },
+  ];
+
+  // Fetch ALL students for a given class (across all pages)
+  const fetchAllStudentsForClass = async (studentClass) => {
+    let allStudents = [];
+    let page = 1;
+    let totalPages = 1;
+    do {
+      const response = await adminAPI.getStudents({
+        params: { page, limit: 100, class: studentClass },
+        retry: true,
+      });
+      const data = response.data.data;
+      allStudents = [...allStudents, ...(data.students || [])];
+      totalPages = data.pagination?.totalPages || 1;
+      page++;
+    } while (page <= totalPages);
+    return allStudents;
+  };
+
+  const handleDownloadExcel = async () => {
+    if (!downloadClass) {
+      showError('Please select a class to download.');
+      return;
+    }
+    setIsDownloading(true);
+    try {
+      const students = await fetchAllStudentsForClass(downloadClass);
+      if (!students.length) {
+        showError(`No students found in Class ${downloadClass}.`);
+        setIsDownloading(false);
+        return;
+      }
+
+      // Build worksheet rows
+      const rows = students.map((s, idx) => ({
+        'S.No': idx + 1,
+        'Roll Number': s.rollNumber || 'N/A',
+        'First Name': s.user?.firstName || 'N/A',
+        'Last Name': s.user?.lastName || 'N/A',
+        'Class': s.class || 'N/A',
+        'Section': s.section || 'N/A',
+        'Email': s.user?.email || 'N/A',
+        'Phone': s.user?.phone || 'N/A',
+        'Gender': s.user?.gender || 'N/A',
+        'Date of Birth': s.user?.dateOfBirth ? new Date(s.user.dateOfBirth).toLocaleDateString('en-IN') : 'N/A',
+        'Blood Group': s.medicalInfo?.bloodGroup || 'N/A',
+        "Father's Name": s.father?.name || 'N/A',
+        "Mother's Name": s.mother?.name || 'N/A',
+        'Guardian Phone': s.guardian?.phone || 'N/A',
+        'Admission Date': s.admissionDate ? new Date(s.admissionDate).toLocaleDateString('en-IN') : 'N/A',
+        'Academic Year': s.academicYear || 'N/A',
+        'Status': s.status || 'N/A',
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+
+      // Auto-size columns
+      const colWidths = Object.keys(rows[0] || {}).map(key => ({
+        wch: Math.max(key.length, ...rows.map(r => String(r[key] || '').length)) + 2,
+      }));
+      worksheet['!cols'] = colWidths;
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, `Class ${downloadClass} Students`);
+
+      const filename = `Students_Class_${downloadClass}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      XLSX.writeFile(workbook, filename);
+
+      showSuccess(`Downloaded data for ${students.length} student(s) from Class ${downloadClass}.`);
+      setShowDownloadModal(false);
+      setDownloadClass('');
+    } catch (err) {
+      showError(err.userMessage || 'Failed to download student data.');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   const renderTableContent = () => {
     if (loading) {
       return (
@@ -274,6 +376,13 @@ export default function ManageStudents() {
             size="medium"
           >
             <FaSyncAlt />
+          </LoadingButton>
+          <LoadingButton
+            onClick={() => { setShowDownloadModal(true); setDownloadClass(''); }}
+            className="download-excel-btn"
+            title="Download student data by class"
+          >
+            <FaFileExcel /> Download by Class
           </LoadingButton>
           <LoadingButton 
             onClick={handleAddStudent}
@@ -631,6 +740,64 @@ export default function ManageStudents() {
         />
       )}
 
+      {/* Download by Class Modal */}
+      {showDownloadModal && (
+        <div className="modal-overlay" onClick={(e) => { if (e.target.classList.contains('modal-overlay')) { setShowDownloadModal(false); setDownloadClass(''); } }}>
+          <div className="download-modal">
+            <div className="modal-header">
+              <div className="modal-title-group">
+                <FaFileExcel className="modal-excel-icon" />
+                <h3>Download Student Data</h3>
+              </div>
+              <button
+                onClick={() => { setShowDownloadModal(false); setDownloadClass(''); }}
+                className="close-btn"
+                title="Close"
+              >
+                <FaTimes />
+              </button>
+            </div>
+            <div className="modal-body">
+              <p className="download-desc">Select a class to export all student records as an Excel (.xlsx) file.</p>
+              <div className="class-grid">
+                {classOptions.map(opt => (
+                  <button
+                    key={opt.value}
+                    className={`class-chip ${downloadClass === opt.value ? 'selected' : ''}`}
+                    onClick={() => setDownloadClass(opt.value)}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              {downloadClass && (
+                <div className="selected-class-info">
+                  <FaDownload />
+                  <span>Ready to download: <strong>Class {downloadClass}</strong></span>
+                </div>
+              )}
+            </div>
+            <div className="modal-actions">
+              <button
+                onClick={() => { setShowDownloadModal(false); setDownloadClass(''); }}
+                className="cancel-btn"
+                disabled={isDownloading}
+              >
+                Cancel
+              </button>
+              <LoadingButton
+                onClick={handleDownloadExcel}
+                loading={isDownloading}
+                className="confirm-download-btn"
+                disabled={!downloadClass || isDownloading}
+              >
+                <FaDownload /> {isDownloading ? 'Downloading...' : 'Download Excel'}
+              </LoadingButton>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
         <div className="modal-overlay">
@@ -682,6 +849,7 @@ export default function ManageStudents() {
           align-items: center;
           justify-content: center;
           z-index: 1000;
+          backdrop-filter: blur(3px);
         }
 
         .delete-modal {
@@ -693,6 +861,182 @@ export default function ManageStudents() {
           box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
         }
 
+        /* ---- Download Excel Modal ---- */
+        .download-modal {
+          background: #fff;
+          border-radius: 14px;
+          padding: 0;
+          max-width: 480px;
+          width: 92%;
+          box-shadow: 0 20px 60px rgba(0,0,0,0.22);
+          animation: slideInUp 0.25s ease;
+        }
+
+        @keyframes slideInUp {
+          from { transform: translateY(30px); opacity: 0; }
+          to   { transform: translateY(0);   opacity: 1; }
+        }
+
+        .download-modal .modal-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 20px 24px;
+          border-bottom: 1px solid #eef0f3;
+          background: linear-gradient(135deg, #1a7f37 0%, #22863a 100%);
+          border-radius: 14px 14px 0 0;
+        }
+
+        .modal-title-group {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+
+        .modal-excel-icon {
+          font-size: 22px;
+          color: #fff;
+        }
+
+        .download-modal .modal-header h3 {
+          margin: 0;
+          color: #fff;
+          font-size: 17px;
+          font-weight: 600;
+        }
+
+        .download-modal .close-btn {
+          background: rgba(255,255,255,0.15);
+          border: none;
+          border-radius: 6px;
+          font-size: 14px;
+          cursor: pointer;
+          color: #fff;
+          padding: 6px 8px;
+          display: flex;
+          align-items: center;
+          transition: background 0.2s;
+        }
+
+        .download-modal .close-btn:hover {
+          background: rgba(255,255,255,0.3);
+        }
+
+        .download-modal .modal-body {
+          padding: 24px;
+          text-align: left;
+        }
+
+        .download-desc {
+          color: #555;
+          font-size: 14px;
+          margin: 0 0 18px 0;
+        }
+
+        .class-grid {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 10px;
+          margin-bottom: 16px;
+        }
+
+        .class-chip {
+          padding: 10px 6px;
+          border: 2px solid #e0e3e8;
+          border-radius: 8px;
+          background: #f8f9fa;
+          color: #444;
+          font-size: 13px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.18s;
+          text-align: center;
+        }
+
+        .class-chip:hover {
+          border-color: #1a7f37;
+          background: #eaf6ee;
+          color: #1a7f37;
+        }
+
+        .class-chip.selected {
+          border-color: #1a7f37;
+          background: #1a7f37;
+          color: #fff;
+          box-shadow: 0 2px 8px rgba(26,127,55,0.3);
+          transform: scale(1.04);
+        }
+
+        .selected-class-info {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          background: #eaf6ee;
+          border: 1px solid #b6e4c5;
+          border-radius: 7px;
+          padding: 10px 14px;
+          font-size: 14px;
+          color: #1a7f37;
+          margin-top: 4px;
+        }
+
+        .download-modal .modal-actions {
+          display: flex;
+          gap: 10px;
+          padding: 16px 24px 20px;
+          border-top: 1px solid #eef0f3;
+          justify-content: flex-end;
+        }
+
+        .confirm-download-btn {
+          background: linear-gradient(135deg, #1a7f37 0%, #22863a 100%);
+          color: white;
+          border: none;
+          padding: 10px 22px;
+          border-radius: 7px;
+          cursor: pointer;
+          font-size: 14px;
+          font-weight: 600;
+          display: flex;
+          align-items: center;
+          gap: 7px;
+          transition: opacity 0.2s, transform 0.15s;
+        }
+
+        .confirm-download-btn:hover:not(:disabled) {
+          opacity: 0.88;
+          transform: translateY(-1px);
+        }
+
+        .confirm-download-btn:disabled {
+          background: #adb5bd;
+          cursor: not-allowed;
+          transform: none;
+        }
+
+        /* ---- Download Excel button in header ---- */
+        .download-excel-btn {
+          background: linear-gradient(135deg, #1a7f37, #22863a);
+          color: white;
+          border: none;
+          padding: 10px 16px;
+          border-radius: 5px;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 14px;
+          font-weight: 500;
+          transition: opacity 0.2s, transform 0.15s;
+          white-space: nowrap;
+        }
+
+        .download-excel-btn:hover {
+          opacity: 0.88;
+          transform: translateY(-1px);
+        }
+
+        /* ---- Shared modal styles ---- */
         .modal-header {
           display: flex;
           justify-content: space-between;
@@ -757,8 +1101,13 @@ export default function ManageStudents() {
           transition: background-color 0.2s;
         }
 
-        .cancel-btn:hover {
+        .cancel-btn:hover:not(:disabled) {
           background: #545b62;
+        }
+
+        .cancel-btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
         }
 
         .confirm-delete-btn {

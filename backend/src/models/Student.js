@@ -205,6 +205,17 @@ const studentSchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId, 
       ref: 'User' 
     }
+  }],
+
+  // Promotion History — appended each time admin promotes the student
+  promotionHistory: [{
+    fromClass: { type: String, trim: true },
+    toClass: { type: String, trim: true },
+    fromAcademicYear: { type: String, trim: true },
+    toAcademicYear: { type: String, trim: true },
+    promotedAt: { type: Date, default: Date.now },
+    promotedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    remarks: { type: String, trim: true }
   }]
 }, {
   timestamps: true,
