@@ -1849,13 +1849,22 @@ router.get('/fees', async (req, res) => {
         totalPendingAmount: pendingDues.reduce((sum, due) => sum + due.amount, 0)
       };
 
+      const mappedFeeStructures = feeStructures.map(s => {
+        const components = s.feeComponents ? (typeof s.feeComponents.toJSON === 'function' ? s.feeComponents.toJSON() : s.feeComponents) : {};
+        const totalAmount = Object.values(components).reduce((sum, v) => typeof v === 'number' ? sum + v : sum + Number(v || 0), 0);
+        return {
+          ...s.toObject(),
+          totalAmount
+        };
+      });
+
       return res.json({
         success: true,
         data: {
           type: 'overview',
           academicYear: yearFilter,
           summary,
-          feeStructures,
+          feeStructures: mappedFeeStructures,
           recentPayments
         }
       });

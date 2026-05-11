@@ -24,7 +24,7 @@ export default function FeePayment() {
         const payments = Array.isArray(payload.payments) ? payload.payments : [];
         const normalized = dues.map(d => ({
           id: String(d._id || Math.random()),
-          type: `Installment ${d.installmentNumber}`,
+          type: d.installmentName || `Installment ${d.installmentNumber}`,
           amount: Number(d.amount || 0),
           dueDate: d.dueDate || new Date().toISOString(),
           status: d.status || 'pending',
@@ -43,7 +43,7 @@ export default function FeePayment() {
         if (!quickPayAmount) setQuickPayAmount(String(pendingTotal || ''));
         setHistory(payments.map(p => ({
           id: String(p._id || Math.random()),
-          type: `Installment ${p.installmentNumber}`,
+          type: p.installmentName || `Installment ${p.installmentNumber}`,
           amount: Number(p.paymentDetails?.amount || 0),
           date: p.paymentDetails?.paymentDate || new Date().toISOString(),
           transactionId: p.paymentDetails?.transactionId || '',
