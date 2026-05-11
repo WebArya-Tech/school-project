@@ -150,6 +150,10 @@ const feePaymentSchema = new mongoose.Schema({
     type: Number,
     required: true
   },
+  installmentName: {
+    type: String,
+    default: ''
+  },
   status: {
     type: String,
     enum: ['pending', 'completed', 'failed', 'refunded'],
@@ -194,6 +198,10 @@ const feeDueSchema = new mongoose.Schema({
   installmentNumber: {
     type: Number,
     required: true
+  },
+  installmentName: {
+    type: String,
+    default: ''
   },
   dueDate: {
     type: Date,

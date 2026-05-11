@@ -49,17 +49,33 @@ const FeePayment = () => {
 
   const handleStudentInfoChange = (e) => {
     const { name, value } = e.target;
-    setStudentInfo(prevState => {
-      const next = { ...prevState, [name]: value };
-      if (name === 'class') {
-        const modelClass = toModelClass(value);
-        const match = feeStructures.find(fs => String(fs.class) === String(modelClass));
-        if (match) {
-          next.feeAmount = String(match.totalAmount);
-        }
+    setStudentInfo(prevState => ({ ...prevState, [name]: value }));
+  };
+
+  const fetchStudentDues = async () => {
+    if (!studentInfo.studentId) {
+      alert('Please enter a Student ID');
+      return;
+    }
+    try {
+      setLoadingFees(true);
+      setFeesError('');
+      const res = await studentAPI.getPublicFeeInfo(studentInfo.studentId);
+      const data = res.data?.data;
+      if (data) {
+        setStudentInfo(prev => ({
+          ...prev,
+          studentName: data.studentName,
+          class: data.class,
+          feeAmount: String(data.totalDue)
+        }));
       }
-      return next;
-    });
+    } catch (err) {
+      setFeesError(err.userMessage || 'Failed to fetch student dues');
+      alert(err.userMessage || 'Failed to fetch student dues. Check Student ID.');
+    } finally {
+      setLoadingFees(false);
+    }
   };
 
   const handlePayment = async (e) => {
@@ -91,18 +107,23 @@ const FeePayment = () => {
         prefill: { name: studentInfo.studentName },
         handler: async (response) => {
           try {
+            // Verify payment signature
             const cap = await paymentsAPI.capture({ 
               paymentId: response.razorpay_payment_id, 
               orderId: response.razorpay_order_id, 
-              signature: response.razorpay_signature,
-              studentId: studentInfo.studentId,
-              studentName: studentInfo.studentName,
-              class: studentInfo.class,
-              amount
+              signature: response.razorpay_signature 
             });
-            const record = cap?.data?.record;
-            const receiptNumber = record?.paymentDetails?.receiptNumber || `FEE-${Math.floor(Math.random() * 100000)}`;
-            const paymentDate = record?.paymentDetails?.paymentDate ? new Date(record.paymentDetails.paymentDate).toLocaleDateString() : new Date().toLocaleDateString();
+            
+            // Process the payment in our system
+            await studentAPI.processPublicPayment({
+              studentId: studentInfo.studentId,
+              paymentMethod: activeTab,
+              transactionId: response.razorpay_payment_id,
+              amount: amount
+            });
+
+            const receiptNumber = `PUB-${Math.floor(Math.random() * 100000)}`;
+            const paymentDate = new Date().toLocaleDateString();
             setReceiptData({
               receiptNumber,
               paymentDate,
@@ -251,38 +272,38 @@ const FeePayment = () => {
                 <h2>Fee Payment Information</h2>
                 <p>Please enter the student details and select a payment method to proceed with the fee payment.</p>
                 
-              <div className="fee-structure">
-                <h3>Fee Structure</h3>
-                {loadingFees ? (
-                  <p>Loading fee structures...</p>
-                ) : feesError ? (
-                  <p className="error">{feesError}</p>
-                ) : (
-                  <table className="fee-table">
-                    <thead>
-                      <tr>
-                        <th>Class</th>
-                        <th>Total Fee</th>
-                        <th>Schedule</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {feeStructures.map((fs) => (
-                        <tr key={fs._id}>
-                          <td>{fromModelClass(fs.class)}</td>
-                          <td>₹{fs.totalAmount}</td>
-                          <td>{String(fs.paymentSchedule).replace('_', ' ')}</td>
-                        </tr>
-                      ))}
-                      {feeStructures.length === 0 && (
+                <div className="fee-structure">
+                  <h3>Fee Structure</h3>
+                  {loadingFees ? (
+                    <p>Loading fee structures...</p>
+                  ) : feesError ? (
+                    <p className="error">{feesError}</p>
+                  ) : (
+                    <table className="fee-table">
+                      <thead>
                         <tr>
-                          <td colSpan={3}>No fee structures available.</td>
+                          <th>Class</th>
+                          <th>Total Fee</th>
+                          <th>Schedule</th>
                         </tr>
-                      )}
-                    </tbody>
-                  </table>
-                )}
-              </div>
+                      </thead>
+                      <tbody>
+                        {feeStructures.map((fs) => (
+                          <tr key={fs._id}>
+                            <td>{fromModelClass(fs.class)}</td>
+                            <td>₹{fs.totalAmount}</td>
+                            <td>{String(fs.paymentSchedule).replace('_', ' ')}</td>
+                          </tr>
+                        ))}
+                        {feeStructures.length === 0 && (
+                          <tr>
+                            <td colSpan={3}>No fee structures available.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
               </div>
               
               <div className="payment-form-container">
@@ -294,15 +315,21 @@ const FeePayment = () => {
                     
                     <div className="form-group">
                       <label htmlFor="studentId">Student ID *</label>
-                      <input 
-                        type="text" 
-                        id="studentId" 
-                        name="studentId" 
-                        value={studentInfo.studentId} 
-                        placeholder="Student ID"
-                        onChange={handleStudentInfoChange} 
-                        required 
-                      />
+                      <div className="input-group" style={{ display: 'flex', gap: '10px' }}>
+                        <input 
+                          type="text" 
+                          id="studentId" 
+                          name="studentId" 
+                          value={studentInfo.studentId} 
+                          placeholder="e.g. STU001"
+                          onChange={handleStudentInfoChange} 
+                          required 
+                          style={{ flex: 1 }}
+                        />
+                        <button type="button" onClick={fetchStudentDues} className="btn btn-secondary" style={{ padding: '0 15px', whiteSpace: 'nowrap', backgroundColor: '#3b82f6', color: 'white', borderRadius: '4px', border: 'none', cursor: 'pointer' }} disabled={loadingFees}>
+                          {loadingFees ? 'Fetching...' : 'Fetch Dues'}
+                        </button>
+                      </div>
                     </div>
                     
                     <div className="form-group">
@@ -315,30 +342,26 @@ const FeePayment = () => {
                         placeholder="Student Name"
                         onChange={handleStudentInfoChange} 
                         required 
+                        readOnly
+                        style={{ backgroundColor: '#f3f4f6' }}
                       />
                     </div>
                     
                     <div className="form-row">
                       <div className="form-group">
                         <label htmlFor="class">Class *</label>
-                        <select 
+                        <input 
+                          type="text" 
                           id="class" 
                           name="class" 
                           value={studentInfo.class} 
+                          placeholder="Class"
                           onChange={handleStudentInfoChange} 
                           required
-                        >
-                          <option value="">Select Class</option>
-                          <option value="NS">NS</option>
-                          <option value="LKG">LKG</option>
-                          <option value="UKG">UKG</option>
-                          {[...Array(12)].map((_, i) => (
-                            <option key={i} value={`${i+1}`}>{i+1}</option>
-                          ))}
-                        </select>
+                          readOnly
+                          style={{ backgroundColor: '#f3f4f6' }}
+                        />
                       </div>
-                      
-
                     </div>
                     
                     <div className="form-group">

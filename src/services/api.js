@@ -358,6 +358,8 @@ export const studentAPI = {
   getFees: () => api.get('/student/fees'),
   payFees: (paymentData) => api.post('/student/fees/payment', paymentData),
   getFeeStructures: (params = {}) => api.get('/student/fees/structures', { params }),
+  getPublicFeeInfo: (studentId) => api.get(`/student/fees/public-info/${studentId}`),
+  processPublicPayment: (paymentData) => api.post('/student/fees/public-payment', paymentData),
   getClasses: () => api.get('/student/courses'),
   getOnlineClasses: (params = {}) => api.get('/student/online-classes', { params }),
   joinOnlineClass: (id) => api.post(`/student/online-classes/${id}/join`),

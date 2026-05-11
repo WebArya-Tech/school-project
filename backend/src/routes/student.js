@@ -475,6 +475,15 @@ router.get('/fees', authenticateToken, requireRole(['student']), async (req, res
 
     let feeStructure = await FeeStructure.findOne({ class: student.class, academicYear, isActive: true });
 
+    // Fallback: If no fee structure is found for the exact academic year, find the most recent active one for their class
+    if (!feeStructure) {
+      feeStructure = await FeeStructure.findOne({ class: student.class, isActive: true }).sort({ createdAt: -1 });
+      if (feeStructure) {
+        // If we found a fallback structure, use its academic year to stay consistent
+        academicYear = feeStructure.academicYear;
+      }
+    }
+
     if (!feeStructure) {
       const totalFromStudent = Number(student.feeStructure?.admissionFee || 0) +
         Number(student.feeStructure?.tuitionFee || 0) +
@@ -499,7 +508,8 @@ router.get('/fees', authenticateToken, requireRole(['student']), async (req, res
     if (feeStructure) {
       const existingDuesCount = await FeeDue.countDocuments({ student: student._id, academicYear, feeStructure: feeStructure._id });
       if (existingDuesCount === 0) {
-        const totalAmount = Object.values(feeStructure.feeComponents || {}).reduce((sum, v) => sum + Number(v || 0), 0);
+        const components = feeStructure.feeComponents ? (typeof feeStructure.feeComponents.toJSON === 'function' ? feeStructure.feeComponents.toJSON() : feeStructure.feeComponents) : {};
+        const totalAmount = Object.values(components).reduce((sum, v) => typeof v === 'number' ? sum + v : sum + Number(v || 0), 0);
         if (Array.isArray(feeStructure.dueDates) && feeStructure.dueDates.length > 0) {
           for (const d of feeStructure.dueDates) {
             const due = new FeeDue({
@@ -507,21 +517,63 @@ router.get('/fees', authenticateToken, requireRole(['student']), async (req, res
               feeStructure: feeStructure._id,
               academicYear,
               installmentNumber: Number(d.installmentNumber || 1),
+              installmentName: d.installmentName || `Installment ${d.installmentNumber || 1}`,
               dueDate: d.dueDate || new Date(),
               amount: Number(d.amount || 0)
             });
             await due.save();
           }
         } else {
-          const due = new FeeDue({
-            student: student._id,
-            feeStructure: feeStructure._id,
-            academicYear,
-            installmentNumber: 1,
-            dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
-            amount: Number(totalAmount || 0)
-          });
-          await due.save();
+          const schedule = feeStructure.paymentSchedule || 'yearly';
+          let numInstallments = 1;
+          let installmentNames = ['Annual Fee'];
+          if (schedule === 'monthly') {
+            numInstallments = 12;
+            installmentNames = ['April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December', 'January', 'February', 'March'];
+          } else if (schedule === 'quarterly') {
+            numInstallments = 4;
+            installmentNames = ['Q1 (Apr-Jun)', 'Q2 (Jul-Sep)', 'Q3 (Oct-Dec)', 'Q4 (Jan-Mar)'];
+          } else if (schedule === 'half_yearly') {
+            numInstallments = 2;
+            installmentNames = ['Term 1 (Apr-Sep)', 'Term 2 (Oct-Mar)'];
+          }
+
+          const baseInstallmentAmount = Math.floor(totalAmount / numInstallments);
+          const remainder = totalAmount - (baseInstallmentAmount * numInstallments);
+          const startYear = parseInt(academicYear.split('-')[0]) || new Date().getFullYear();
+
+          for (let i = 1; i <= numInstallments; i++) {
+            let amount = baseInstallmentAmount;
+            if (i === 1) amount += remainder;
+
+            let dueDate = new Date();
+            if (schedule === 'monthly') {
+              const monthOffset = (i - 1 + 3) % 12;
+              const yearOffset = (i - 1 + 3) >= 12 ? 1 : 0;
+              dueDate = new Date(startYear + yearOffset, monthOffset, 10);
+            } else if (schedule === 'quarterly') {
+              const monthOffset = ((i - 1) * 3 + 3) % 12;
+              const yearOffset = ((i - 1) * 3 + 3) >= 12 ? 1 : 0;
+              dueDate = new Date(startYear + yearOffset, monthOffset, 10);
+            } else if (schedule === 'half_yearly') {
+              const monthOffset = ((i - 1) * 6 + 3) % 12;
+              const yearOffset = ((i - 1) * 6 + 3) >= 12 ? 1 : 0;
+              dueDate = new Date(startYear + yearOffset, monthOffset, 10);
+            } else {
+              dueDate = new Date(startYear, 3, 15);
+            }
+
+            const due = new FeeDue({
+              student: student._id,
+              feeStructure: feeStructure._id,
+              academicYear,
+              installmentNumber: i,
+              installmentName: installmentNames[i - 1] || `Installment ${i}`,
+              dueDate: dueDate,
+              amount: amount
+            });
+            await due.save();
+          }
         }
       }
     }
@@ -537,7 +589,7 @@ router.get('/fees', authenticateToken, requireRole(['student']), async (req, res
 
     const fees = dues.map(d => ({
       id: String(d._id),
-      type: `Installment ${d.installmentNumber}`,
+      type: d.installmentName || `Installment ${d.installmentNumber}`,
       amount: Number(d.amount || 0),
       dueDate: d.dueDate || new Date(),
       status: d.status,
@@ -571,7 +623,7 @@ router.get('/fees', authenticateToken, requireRole(['student']), async (req, res
         summary: {
           totalPaid,
           totalDue,
-          totalFeeAmount: feeStructure?.totalAmount || 0
+          totalFeeAmount: feeStructure ? (feeStructure.feeComponents ? Object.values(typeof feeStructure.feeComponents.toJSON === 'function' ? feeStructure.feeComponents.toJSON() : feeStructure.feeComponents).reduce((sum, v) => typeof v === 'number' ? sum + v : sum + Number(v || 0), 0) : 0) : 0
         }
       }
     });
@@ -596,13 +648,16 @@ router.get('/fees/structures', async (req, res) => {
 
     const structures = await FeeStructure.find(query).sort({ class: 1 });
 
-    const data = structures.map((s) => ({
-      _id: s._id,
-      class: s.class,
-      academicYear: s.academicYear,
-      paymentSchedule: s.paymentSchedule,
-      totalAmount: Object.values(s.feeComponents || {}).reduce((sum, v) => sum + Number(v || 0), 0),
-    }));
+    const data = structures.map((s) => {
+      const components = s.feeComponents ? (typeof s.feeComponents.toJSON === 'function' ? s.feeComponents.toJSON() : s.feeComponents) : {};
+      return {
+        _id: s._id,
+        class: s.class,
+        academicYear: s.academicYear,
+        paymentSchedule: s.paymentSchedule,
+        totalAmount: Object.values(components).reduce((sum, v) => typeof v === 'number' ? sum + v : sum + Number(v || 0), 0),
+      };
+    });
 
     return res.json({ success: true, data });
   } catch (error) {
@@ -757,6 +812,123 @@ router.put('/notifications/:id/read', (req, res) => {
       notification_id: req.params.id
     }
   });
+});
+
+// @route   GET /api/student/fees/public-info/:studentId
+// @desc    Get pending fee summary for a student ID
+// @access  Public
+router.get('/fees/public-info/:studentId', async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const student = await Student.findOne({ studentId }).populate('user', 'firstName lastName email');
+    if (!student) {
+      return res.status(404).json({ success: false, message: 'Student not found' });
+    }
+    const currentYear = new Date().getFullYear();
+    const academicYear = student.academicYear || `${currentYear}-${currentYear + 1}`;
+
+    const dues = await FeeDue.find({ student: student._id, academicYear, status: { $ne: 'paid' } })
+      .populate('feeStructure', 'class totalAmount')
+      .sort({ dueDate: 1 });
+
+    const totalDue = dues.reduce((sum, d) => sum + Math.max(0, Number(d.amount || 0) - Number(d.paidAmount || 0)), 0);
+
+    return res.json({
+      success: true,
+      data: {
+        studentId: student.studentId,
+        studentName: student.name,
+        class: student.class,
+        totalDue,
+        academicYear,
+        pendingDues: dues.map(d => ({
+          id: d._id,
+          installmentName: d.installmentName || `Installment ${d.installmentNumber}`,
+          dueDate: d.dueDate,
+          amountDue: Math.max(0, Number(d.amount || 0) - Number(d.paidAmount || 0))
+        }))
+      }
+    });
+  } catch (error) {
+    console.error('Get public fee info error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch fee info', error: error.message });
+  }
+});
+
+// @route   POST /api/student/fees/public-payment
+// @desc    Process a fee payment from the public page
+// @access  Public
+router.post('/fees/public-payment', async (req, res) => {
+  try {
+    const { studentId, paymentMethod, transactionId, amount } = req.body;
+    
+    if (!studentId || !amount || amount <= 0) {
+      return res.status(400).json({ success: false, message: 'Student ID and a valid amount are required' });
+    }
+
+    const student = await Student.findOne({ studentId });
+    if (!student) {
+      return res.status(404).json({ success: false, message: 'Student not found' });
+    }
+
+    const currentYear = new Date().getFullYear();
+    const academicYear = student.academicYear || `${currentYear}-${currentYear + 1}`;
+
+    const dues = await FeeDue.find({ student: student._id, academicYear, status: { $ne: 'paid' } }).sort({ dueDate: 1 });
+    
+    let remainingPayment = Number(amount);
+    let totalApplied = 0;
+    const paidDues = [];
+
+    for (const due of dues) {
+      if (remainingPayment <= 0) break;
+      
+      const duePending = Math.max(0, Number(due.amount || 0) - Number(due.paidAmount || 0));
+      if (duePending <= 0) continue;
+
+      const applyAmount = Math.min(duePending, remainingPayment);
+      
+      const payment = new FeePayment({
+        student: student._id,
+        feeStructure: due.feeStructure,
+        paymentDetails: {
+          amount: applyAmount,
+          paymentMethod: String(paymentMethod || 'online'),
+          transactionId: transactionId ? String(transactionId) : undefined,
+          paymentDate: new Date(),
+          receiptNumber: `PUB-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+        },
+        feeBreakdown: {},
+        academicYear,
+        installmentNumber: due.installmentNumber,
+        installmentName: due.installmentName,
+        processedBy: student.user || student._id,
+        status: 'completed'
+      });
+
+      await payment.save();
+
+      due.paidAmount = Number(due.paidAmount || 0) + applyAmount;
+      await due.save();
+
+      remainingPayment -= applyAmount;
+      totalApplied += applyAmount;
+      paidDues.push({ dueId: due._id, applied: applyAmount });
+    }
+
+    if (totalApplied === 0) {
+      return res.status(400).json({ success: false, message: 'No pending dues found or payment could not be applied' });
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: 'Payment processed successfully',
+      data: { totalApplied, remainder: remainingPayment, paidDues }
+    });
+  } catch (error) {
+    console.error('Public fee payment error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to process payment', error: error.message });
+  }
 });
 
 module.exports = router;
