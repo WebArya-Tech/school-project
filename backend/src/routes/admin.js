@@ -1834,8 +1834,12 @@ router.get('/fees', async (req, res) => {
           { $group: { _id: '$status', count: { $sum: 1 }, amount: { $sum: '$remainingAmount' } } }
         ]),
         
-        FeePayment.find({ academicYear: yearFilter, status: 'completed' })
-          .populate('student', 'name class')
+        FeePayment.find({ status: 'completed' })
+          .populate({
+            path: 'student',
+            select: 'class studentId user',
+            populate: { path: 'user', select: 'firstName lastName' }
+          })
           .sort({ 'paymentDetails.paymentDate': -1 })
           .limit(10)
       ]);
@@ -1858,6 +1862,14 @@ router.get('/fees', async (req, res) => {
         };
       });
 
+      const mappedRecentPayments = recentPayments.map(p => {
+        const pObj = p.toObject ? p.toObject() : p;
+        if (pObj.student && pObj.student.user) {
+          pObj.student.name = `${pObj.student.user.firstName} ${pObj.student.user.lastName || ''}`.trim();
+        }
+        return pObj;
+      });
+
       return res.json({
         success: true,
         data: {
@@ -1865,14 +1877,15 @@ router.get('/fees', async (req, res) => {
           academicYear: yearFilter,
           summary,
           feeStructures: mappedFeeStructures,
-          recentPayments
+          recentPayments: mappedRecentPayments
         }
       });
     }
 
     if (type === 'payments') {
       // Get payment history
-      const query = { academicYear: yearFilter };
+      const query = {};
+      if (yearFilter !== 'all') query.academicYear = yearFilter;
       if (status) query.status = status;
 
       let searchQuery = {};
@@ -1897,7 +1910,11 @@ router.get('/fees', async (req, res) => {
       const finalQuery = { ...query, ...searchQuery };
       
       const payments = await FeePayment.find(finalQuery)
-        .populate('student', 'name class studentId')
+        .populate({
+          path: 'student',
+          select: 'class studentId user',
+          populate: { path: 'user', select: 'firstName lastName' }
+        })
         .populate('feeStructure', 'class')
         .populate('processedBy', 'name')
         .sort({ 'paymentDetails.paymentDate': -1 })
@@ -1906,11 +1923,19 @@ router.get('/fees', async (req, res) => {
 
       const totalPayments = await FeePayment.countDocuments(finalQuery);
 
+      const mappedPayments = payments.map(p => {
+        const pObj = p.toObject ? p.toObject() : p;
+        if (pObj.student && pObj.student.user) {
+          pObj.student.name = `${pObj.student.user.firstName} ${pObj.student.user.lastName || ''}`.trim();
+        }
+        return pObj;
+      });
+
       return res.json({
         success: true,
         data: {
           type: 'payments',
-          payments,
+          payments: mappedPayments,
           pagination: {
             currentPage: parseInt(page),
             totalPages: Math.ceil(totalPayments / parseInt(limit)),
@@ -1923,8 +1948,9 @@ router.get('/fees', async (req, res) => {
     }
 
     if (type === 'dues') {
-      // Get pending dues
-      const query = { academicYear: yearFilter };
+      // Get fee dues
+      const query = { status: { $ne: 'paid' } };
+      if (yearFilter !== 'all') query.academicYear = yearFilter;
       if (status) query.status = status;
       if (className) {
         const feeStructures = await FeeStructure.find({ class: className, academicYear: yearFilter });

@@ -122,6 +122,7 @@ const feePaymentSchema = new mongoose.Schema({
     transactionId: String,
     chequeNumber: String,
     bankName: String,
+    receiptPhoto: String,
     paymentDate: {
       type: Date,
       required: true,

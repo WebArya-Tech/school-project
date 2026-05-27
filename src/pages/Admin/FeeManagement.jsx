@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { FaSearch, FaPlus, FaEdit, FaEye, FaDownload, FaFilter, FaMoneyBillWave, FaCalendarAlt, FaUsers, FaTrash } from 'react-icons/fa';
+import { FaSearch, FaPlus, FaEdit, FaEye, FaDownload, FaFilter, FaMoneyBillWave, FaCalendarAlt, FaUsers, FaTrash, FaImage, FaTimes } from 'react-icons/fa';
 import { useAuth } from '../../contexts/AuthContext';
 import config from '../../config/config.js';
 import { adminAPI } from '../../services/api.js';
+import jsPDF from 'jspdf';
 import './FeeManagement.css';
 
 export default function FeeManagement() {
@@ -22,6 +23,10 @@ export default function FeeManagement() {
   const [modalType, setModalType] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
   const [formData, setFormData] = useState({});
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [selectedPayment, setSelectedPayment] = useState(null);
 
   const classOptions = [
     { value: '', label: 'All Classes' },
@@ -264,6 +269,39 @@ export default function FeeManagement() {
     }
   };
 
+  const handleDownloadReceipt = (payment) => {
+    const doc = new jsPDF();
+    const marginLeft = 20;
+
+    doc.setFontSize(18);
+    doc.text('BBD Academy - Fee Payment Receipt', marginLeft, 20);
+
+    doc.setFontSize(12);
+    doc.text(`Receipt Number: ${payment.paymentDetails?.receiptNumber || 'N/A'}`, marginLeft, 40);
+    doc.text(`Date: ${new Date(payment.paymentDetails?.paymentDate || payment.createdAt).toLocaleDateString()}`, marginLeft, 48);
+
+    doc.text('Student Details:', marginLeft, 64);
+    doc.text(`Student ID: ${payment.student?.studentId || 'N/A'}`, marginLeft, 72);
+    doc.text(`Student Name: ${payment.student?.name || 'N/A'}`, marginLeft, 80);
+    doc.text(`Class: ${payment.student?.class || 'N/A'}`, marginLeft, 88);
+
+    doc.text('Payment Details:', marginLeft, 104);
+    doc.text(`Amount Paid: Rs. ${payment.paymentDetails?.amount || 0}`, marginLeft, 112);
+    doc.text(`Payment Method: ${(payment.paymentDetails?.paymentMethod || 'Unknown').toUpperCase()}`, marginLeft, 120);
+    
+    let currentY = 128;
+    if (payment.paymentDetails?.transactionId) {
+      doc.text(`Transaction ID: ${payment.paymentDetails.transactionId}`, marginLeft, currentY);
+      currentY += 8;
+    }
+    
+    doc.text(`Status: ${(payment.status || 'completed').toUpperCase()}`, marginLeft, currentY);
+
+    doc.text('Thank you for your payment!', marginLeft, currentY + 28);
+
+    doc.save(`Receipt-${payment.paymentDetails?.receiptNumber || 'N/A'}.pdf`);
+  };
+
   const getStatusBadge = (status, type = 'payments') => {
     const colors = {
       payments: {
@@ -458,6 +496,9 @@ export default function FeeManagement() {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Method
                       </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Actions
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -482,6 +523,31 @@ export default function FeeManagement() {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {payment.paymentDetails.paymentMethod.toUpperCase()}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                          {payment.paymentDetails?.receiptPhoto && (
+                            <button 
+                              className="text-purple-600 hover:text-purple-900 mr-3" 
+                              title="View Receipt Photo"
+                              onClick={() => { setSelectedImage(payment.paymentDetails.receiptPhoto); setShowImageModal(true); }}
+                            >
+                              <FaImage />
+                            </button>
+                          )}
+                          <button 
+                            className="text-blue-600 hover:text-blue-900 mr-3" 
+                            title="View Details"
+                            onClick={() => { setSelectedPayment(payment); setShowDetailsModal(true); }}
+                          >
+                            <FaEye />
+                          </button>
+                          <button 
+                            className="text-green-600 hover:text-green-900" 
+                            title="Download Receipt"
+                            onClick={() => handleDownloadReceipt(payment)}
+                          >
+                            <FaDownload />
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -511,6 +577,16 @@ export default function FeeManagement() {
                   </div>
                 </div>
                 <div className="flex gap-2">
+                  <select
+                    value={filters.academicYear || ''}
+                    onChange={(e) => handleFilterChange('academicYear', e.target.value)}
+                    className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="all">All Academic Years</option>
+                    <option value="2024-2025">2024-2025</option>
+                    <option value="2025-2026">2025-2026</option>
+                    <option value="2026-2027">2026-2027</option>
+                  </select>
                   <select
                     value={filters.status}
                     onChange={(e) => handleFilterChange('status', e.target.value)}
@@ -599,10 +675,27 @@ export default function FeeManagement() {
                           {getStatusBadge(payment.status, 'payments')}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <button className="text-blue-600 hover:text-blue-900 mr-3">
+                          {payment.paymentDetails?.receiptPhoto && (
+                            <button 
+                              className="text-purple-600 hover:text-purple-900 mr-3" 
+                              title="View Receipt"
+                              onClick={() => { setSelectedImage(payment.paymentDetails.receiptPhoto); setShowImageModal(true); }}
+                            >
+                              <FaImage />
+                            </button>
+                          )}
+                          <button 
+                            className="text-blue-600 hover:text-blue-900 mr-3"
+                            onClick={() => { setSelectedPayment(payment); setShowDetailsModal(true); }}
+                            title="View Details"
+                          >
                             <FaEye />
                           </button>
-                          <button className="text-green-600 hover:text-green-900">
+                          <button 
+                            className="text-green-600 hover:text-green-900"
+                            onClick={() => handleDownloadReceipt(payment)}
+                            title="Download Receipt"
+                          >
                             <FaDownload />
                           </button>
                         </td>
@@ -682,6 +775,16 @@ export default function FeeManagement() {
                   </div>
                 </div>
                 <div className="flex gap-2">
+                  <select
+                    value={filters.academicYear || ''}
+                    onChange={(e) => handleFilterChange('academicYear', e.target.value)}
+                    className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="all">All Academic Years</option>
+                    <option value="2024-2025">2024-2025</option>
+                    <option value="2025-2026">2025-2026</option>
+                    <option value="2026-2027">2026-2027</option>
+                  </select>
                   <select
                     value={filters.status}
                     onChange={(e) => handleFilterChange('status', e.target.value)}
@@ -1032,6 +1135,87 @@ export default function FeeManagement() {
             </div>
           </div>
         )}
+
+        {/* Image Viewer Modal */}
+        {showImageModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-75">
+            <div className="relative bg-white rounded-lg p-4 max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-medium">Receipt Photo</h3>
+                <button onClick={() => setShowImageModal(false)} className="text-gray-500 hover:text-gray-700">
+                  <FaTimes />
+                </button>
+              </div>
+              <div className="overflow-auto flex-1 flex justify-center">
+                <img src={selectedImage} alt="Receipt" className="max-w-full h-auto object-contain" />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Payment Details Modal */}
+        {showDetailsModal && selectedPayment && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-75">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-medium text-gray-900">Payment Details</h3>
+                <button onClick={() => setShowDetailsModal(false)} className="text-gray-500 hover:text-gray-700">
+                  <FaTimes />
+                </button>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <p className="text-sm text-gray-500">Receipt Number</p>
+                  <p className="font-medium">{selectedPayment.paymentDetails?.receiptNumber || 'N/A'}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Student</p>
+                  <p className="font-medium">{selectedPayment.student?.name}</p>
+                  <p className="text-sm text-gray-500">ID: {selectedPayment.student?.studentId} | Class: {selectedPayment.student?.class}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Amount Paid</p>
+                  <p className="font-medium text-green-600">{formatCurrency(selectedPayment.paymentDetails?.amount)}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Date</p>
+                  <p className="font-medium">{new Date(selectedPayment.paymentDetails?.paymentDate || selectedPayment.createdAt).toLocaleDateString()}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Method</p>
+                  <p className="font-medium">{(selectedPayment.paymentDetails?.paymentMethod || '').toUpperCase()}</p>
+                </div>
+                {selectedPayment.paymentDetails?.transactionId && (
+                  <div>
+                    <p className="text-sm text-gray-500">Transaction ID</p>
+                    <p className="font-medium">{selectedPayment.paymentDetails.transactionId}</p>
+                  </div>
+                )}
+                <div>
+                  <p className="text-sm text-gray-500">Status</p>
+                  <div className="mt-1">
+                    {getStatusBadge(selectedPayment.status || 'completed', 'payments')}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-6 flex justify-end gap-3">
+                <button
+                  onClick={() => setShowDetailsModal(false)}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={() => handleDownloadReceipt(selectedPayment)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                >
+                  <FaDownload /> Download
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );

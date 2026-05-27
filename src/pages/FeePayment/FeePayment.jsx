@@ -20,6 +20,19 @@ const FeePayment = () => {
   const [feeStructures, setFeeStructures] = useState([]);
   const [loadingFees, setLoadingFees] = useState(false);
   const [feesError, setFeesError] = useState('');
+  const [cashReceiptNumber, setCashReceiptNumber] = useState('');
+  const [receiptPhotoBase64, setReceiptPhotoBase64] = useState('');
+
+  const handleReceiptPhotoUpload = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setReceiptPhotoBase64(e.target.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   const toModelClass = (value) => {
     if (value === 'NS') return 'Nursery';
@@ -86,6 +99,40 @@ const FeePayment = () => {
         alert('Please select a class to auto-fill fee amount');
         return;
       }
+
+      if (activeTab === 'cash') {
+        if (!cashReceiptNumber) {
+          alert('Please enter the cash receipt number or transaction ID');
+          return;
+        }
+        if (!receiptPhotoBase64) {
+          alert('Please upload a photo of the cash receipt');
+          return;
+        }
+
+        await studentAPI.processPublicPayment({
+          studentId: studentInfo.studentId,
+          paymentMethod: 'cash',
+          transactionId: cashReceiptNumber,
+          amount: amount,
+          receiptPhoto: receiptPhotoBase64
+        });
+
+        const receiptNumber = `PUB-${Math.floor(Math.random() * 100000)}`;
+        const paymentDate = new Date().toLocaleDateString();
+        setReceiptData({
+          receiptNumber,
+          paymentDate,
+          studentId: studentInfo.studentId,
+          studentName: studentInfo.studentName,
+          class: studentInfo.class,
+          amount: String(amount),
+          paymentMethod: getPaymentMethodName(activeTab)
+        });
+        setPaymentComplete(true);
+        return;
+      }
+
       const create = await paymentsAPI.create({ amount, currency: 'INR', description: 'Fee Payment', metadata: { studentId: studentInfo.studentId } });
       const { intent, keyId } = create.data || {};
       const load = await new Promise((resolve, reject) => {
@@ -488,11 +535,21 @@ const FeePayment = () => {
                       
                       {activeTab === 'cash' && (
                         <div className="cash-payment">
-                          <p>Please visit the school's accounts office to make a cash payment. After payment, you will receive a receipt that you can use to download a digital copy.</p>
+                          <p>Please visit the school's accounts office to make a cash payment. After payment, you will receive a receipt that you can upload here.</p>
                           
                           <div className="form-group">
-                            <label htmlFor="cashReceiptNumber">Cash Receipt Number (if already paid) *</label>
-                            <input type="text" id="cashReceiptNumber" placeholder="Enter receipt number" />
+                            <label htmlFor="cashReceiptNumber">Cash Receipt Number / Transaction ID *</label>
+                            <input type="text" id="cashReceiptNumber" placeholder="Enter receipt number" value={cashReceiptNumber} onChange={(e) => setCashReceiptNumber(e.target.value)} required={activeTab === 'cash'} />
+                          </div>
+
+                          <div className="form-group">
+                            <label htmlFor="receiptPhoto">Upload Receipt Photo *</label>
+                            <input type="file" id="receiptPhoto" accept="image/*" onChange={handleReceiptPhotoUpload} required={activeTab === 'cash' && !receiptPhotoBase64} />
+                            {receiptPhotoBase64 && (
+                              <div style={{ marginTop: '10px' }}>
+                                <img src={receiptPhotoBase64} alt="Receipt Preview" style={{ maxWidth: '200px', maxHeight: '150px', objectFit: 'contain', border: '1px solid #ccc', padding: '2px', borderRadius: '4px' }} />
+                              </div>
+                            )}
                           </div>
                         </div>
                       )}
