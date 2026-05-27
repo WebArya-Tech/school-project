@@ -701,7 +701,7 @@ router.post('/fees/payment', authenticateToken, requireRole(['student']), async 
       return res.status(201).json({ success: true, message: 'Payment recorded (E2E)', data: { payment } });
     }
 
-    const { dueId, paymentMethod, transactionId } = req.body || {};
+    const { dueId, paymentMethod, transactionId, receiptPhoto } = req.body || {};
     const student = await Student.findOne({ user: req.user._id || req.user.id });
     if (!student) {
       return res.status(404).json({ success: false, message: 'Student profile not found' });
@@ -729,6 +729,7 @@ router.post('/fees/payment', authenticateToken, requireRole(['student']), async 
         amount: amountToPay,
         paymentMethod: String(paymentMethod || 'online'),
         transactionId: transactionId ? String(transactionId) : undefined,
+        receiptPhoto: receiptPhoto ? String(receiptPhoto) : undefined,
         paymentDate: new Date()
       },
       feeBreakdown: {},
@@ -860,7 +861,7 @@ router.get('/fees/public-info/:studentId', async (req, res) => {
 // @access  Public
 router.post('/fees/public-payment', async (req, res) => {
   try {
-    const { studentId, paymentMethod, transactionId, amount } = req.body;
+    const { studentId, paymentMethod, transactionId, amount, receiptPhoto } = req.body;
     
     if (!studentId || !amount || amount <= 0) {
       return res.status(400).json({ success: false, message: 'Student ID and a valid amount are required' });
@@ -895,6 +896,7 @@ router.post('/fees/public-payment', async (req, res) => {
           amount: applyAmount,
           paymentMethod: String(paymentMethod || 'online'),
           transactionId: transactionId ? String(transactionId) : undefined,
+          receiptPhoto: receiptPhoto ? String(receiptPhoto) : undefined,
           paymentDate: new Date(),
           receiptNumber: `PUB-${Date.now()}-${Math.floor(Math.random() * 1000)}`
         },

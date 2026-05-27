@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { FaCreditCard, FaUniversity, FaWallet, FaDownload, FaCheckCircle, FaExclamationTriangle, FaClock } from 'react-icons/fa';
+import { FaCreditCard, FaUniversity, FaWallet, FaDownload, FaCheckCircle, FaExclamationTriangle, FaClock, FaMoneyBillWave } from 'react-icons/fa';
 import { studentAPI, paymentsAPI } from '../../services/api';
 import config from '../../config/config.js';
+import jsPDF from 'jspdf';
 
 export default function FeePayment() {
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('card');
@@ -12,6 +13,19 @@ export default function FeePayment() {
   const [studentProfile, setStudentProfile] = useState(null);
   const [quickPayAmount, setQuickPayAmount] = useState('');
   const [summary, setSummary] = useState({ totalDue: 0, totalPaid: 0, totalFeeAmount: 0 });
+  const [cashReceiptNumber, setCashReceiptNumber] = useState('');
+  const [receiptPhotoBase64, setReceiptPhotoBase64] = useState('');
+
+  const handleReceiptPhotoUpload = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setReceiptPhotoBase64(e.target.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   useEffect(() => {
     const loadFees = async () => {
@@ -86,6 +100,52 @@ export default function FeePayment() {
 
   const processPayment = async () => {
     if (!selectedFee) return;
+
+    if (selectedPaymentMethod === 'cash') {
+      if (!cashReceiptNumber) {
+        alert('Please enter the cash receipt number or transaction ID');
+        return;
+      }
+      if (!receiptPhotoBase64) {
+        alert('Please upload a photo of the cash receipt');
+        return;
+      }
+      try {
+        const res = await studentAPI.payFees({ 
+          dueId: selectedFee.id, 
+          paymentMethod: 'cash', 
+          transactionId: cashReceiptNumber,
+          receiptPhoto: receiptPhotoBase64
+        });
+        const p = res?.data?.data?.payment;
+        alert(`Payment of ₹${selectedFee.amount} processed successfully!`);
+        setFees(prev => prev.map(f => f.id === selectedFee.id ? { ...f, status: 'paid', paidDate: new Date().toISOString() } : f));
+        setSummary(prev => ({
+          totalDue: Math.max(0, Number(prev.totalDue || 0) - Number(selectedFee.amount || 0)),
+          totalPaid: Number(prev.totalPaid || 0) + Number(selectedFee.amount || 0),
+          totalFeeAmount: Number(prev.totalFeeAmount || 0)
+        }));
+        if (p) {
+          setHistory(prev => [{
+            id: String(p._id || Math.random()),
+            type: `Installment ${p.installmentNumber}`,
+            amount: Number(p.paymentDetails?.amount || 0),
+            date: p.paymentDetails?.paymentDate || new Date().toISOString(),
+            transactionId: p.paymentDetails?.transactionId || '',
+            method: p.paymentDetails?.paymentMethod || ''
+          }, ...prev]);
+        }
+      } catch (e) {
+        alert(e.userMessage || 'Payment failed');
+      } finally {
+        setShowPaymentModal(false);
+        setSelectedFee(null);
+        setCashReceiptNumber('');
+        setReceiptPhotoBase64('');
+      }
+      return;
+    }
+
     try {
       const create = await paymentsAPI.create({ amount: selectedFee.amount, currency: 'INR', description: selectedFee.type, metadata: { dueId: selectedFee.id } });
       const { intent, keyId } = create.data || {};
@@ -204,6 +264,49 @@ export default function FeePayment() {
 
   const totalPending = Number(summary.totalDue || 0);
   const totalPaid = Number(summary.totalPaid || 0);
+
+  const handleDownloadReceipt = (item) => {
+    const doc = new jsPDF();
+    const marginLeft = 20;
+
+    doc.setFontSize(18);
+    doc.text('BBD Academy - Fee Payment Receipt', marginLeft, 20);
+
+    doc.setFontSize(12);
+    doc.text(`Receipt Date: ${new Date().toLocaleDateString()}`, marginLeft, 40);
+
+    doc.text('Student Details:', marginLeft, 60);
+    doc.text(`Student ID: ${studentProfile?.studentId || 'N/A'}`, marginLeft, 68);
+    doc.text(`Student Name: ${studentProfile?.name || 'N/A'}`, marginLeft, 76);
+    doc.text(`Class: ${studentProfile?.class || 'N/A'}`, marginLeft, 84);
+
+    doc.text('Payment Details:', marginLeft, 100);
+    doc.text(`Fee Type: ${item.type}`, marginLeft, 108);
+    doc.text(`Amount Paid: Rs. ${item.amount}`, marginLeft, 116);
+    
+    let currentY = 124;
+    const paymentDate = item.paidDate || item.date;
+    if (paymentDate) {
+      doc.text(`Payment Date: ${new Date(paymentDate).toLocaleDateString()}`, marginLeft, currentY);
+      currentY += 8;
+    }
+    
+    if (item.method) {
+      doc.text(`Payment Method: ${item.method.toUpperCase()}`, marginLeft, currentY);
+      currentY += 8;
+    }
+
+    if (item.transactionId) {
+      doc.text(`Transaction ID: ${item.transactionId}`, marginLeft, currentY);
+      currentY += 8;
+    }
+    
+    doc.text(`Status: PAID`, marginLeft, currentY);
+
+    doc.text('Thank you for your payment!', marginLeft, currentY + 28);
+
+    doc.save(`Receipt-${item.transactionId || item.type.replace(/\s+/g, '-')}.pdf`);
+  };
 
   return (
     <div style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto' }}>
@@ -340,6 +443,7 @@ export default function FeePayment() {
                 )}
                 {fee.status === 'paid' && (
                   <button
+                    onClick={() => handleDownloadReceipt(fee)}
                     style={{
                       background: '#6c757d',
                       color: 'white',
@@ -389,7 +493,9 @@ export default function FeePayment() {
                   <td style={{ padding: '12px', borderBottom: '1px solid #dee2e6' }}>{payment.transactionId}</td>
                   <td style={{ padding: '12px', borderBottom: '1px solid #dee2e6' }}>{payment.method}</td>
                   <td style={{ padding: '12px', borderBottom: '1px solid #dee2e6' }}>
-                    <button style={{
+                    <button 
+                      onClick={() => handleDownloadReceipt(payment)}
+                      style={{
                       background: '#28a745',
                       color: 'white',
                       border: 'none',
@@ -475,8 +581,47 @@ export default function FeePayment() {
                   <FaWallet />
                   Digital Wallet
                 </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    value="cash"
+                    checked={selectedPaymentMethod === 'cash'}
+                    onChange={(e) => setSelectedPaymentMethod(e.target.value)}
+                  />
+                  <FaMoneyBillWave />
+                  Cash (Upload Receipt)
+                </label>
               </div>
             </div>
+
+            {selectedPaymentMethod === 'cash' && (
+              <div style={{ marginBottom: '20px', padding: '15px', background: '#f8f9fa', borderRadius: '8px' }}>
+                <div style={{ marginBottom: '15px' }}>
+                  <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Cash Receipt Number / Transaction ID *</label>
+                  <input 
+                    type="text" 
+                    value={cashReceiptNumber} 
+                    onChange={(e) => setCashReceiptNumber(e.target.value)} 
+                    placeholder="Enter receipt number" 
+                    style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Upload Receipt Photo *</label>
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    onChange={handleReceiptPhotoUpload} 
+                    style={{ width: '100%' }}
+                  />
+                  {receiptPhotoBase64 && (
+                    <div style={{ marginTop: '10px' }}>
+                      <img src={receiptPhotoBase64} alt="Preview" style={{ maxWidth: '100%', maxHeight: '150px', objectFit: 'contain', border: '1px solid #ccc', padding: '2px', borderRadius: '4px' }} />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
               <button
